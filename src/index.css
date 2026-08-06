@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+.dark {
+  background-color: #121212 !important;
+  color: #e5e5e5 !important;
+}
+
+.dark .bg-white {
+  background-color: #1e1e1e !important;
+}
+
+.dark .bg-[#fafafa],
+.dark .bg-\[\#fcfcfc\],
+.dark .bg-gray-50,
+.dark .bg-gray-100,
+.dark .bg-[#F8FAFC] {
+  background-color: #121212 !important;
+}
+
+/* Force border colors */
+.dark .border-gray-200,
+.dark .border-gray-100,
+.dark .border-gray-300,
+.dark .divide-gray-200 > * {
+  border-color: #333333 !important;
+}
+
+/* Text colors */
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-gray-700 {
+  color: #f3f4f6 !important;
+}
+
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-gray-400 {
+  color: #9ca3af !important;
+}
+
+/* Hover effects */
+.dark .hover\:bg-gray-50:hover {
+  background-color: #2a2a2a !important;
+}
+
+.dark .hover\:text-gray-900:hover {
+  color: #ffffff !important;
+}
+
+/* Nav specific */
+.dark nav.bg-white {
+  background-color: #121212 !important;
+  border-color: #333 !important;
+}
+
+/* Shadows */
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-lg {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Perfect CSS Anti-Print and Screenshot/Print-Preview protections */
+@media print {
+  html, body, #root, #app, main, div, img, canvas {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+}

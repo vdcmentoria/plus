@@ -1,0 +1,145 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net - Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1.1 Support test connectivity
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // 3. Path Variable Hardening & Type Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email_verified == true && (
+        request.auth.token.email == 'isabelefelipefotografias@gmail.com' ||
+        request.auth.token.email == 'felipemachadophotography@gmail.com'
+      );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 2. Validation Blueprints
+    function isValidUser(data) {
+      return data.uid == request.auth.uid
+        && (data.email == null || (data.email is string && data.email.size() <= 200));
+    }
+
+    function isValidCollection(data) {
+      return data.title is string && data.title.size() <= 1000
+        && data.ownerId == request.auth.uid;
+    }
+
+    function isValidMedia(data) {
+      return data.url is string && data.url.size() <= 3000
+        && data.ownerId == request.auth.uid;
+    }
+
+    function isValidPlan(data) {
+      return data.name is string && data.name.size() <= 200;
+    }
+
+    function isValidAuditLog(data) {
+      return data.clientEmail is string && data.clientEmail.size() <= 300;
+    }
+
+    // --- Collections Match Blocks ---
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn();
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) 
+        && (incoming().createdAt == request.time || incoming().createdAt is timestamp);
+      allow update: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) 
+        && incoming().uid == existing().uid
+        && (existing().keys().contains('createdAt') ? (incoming().createdAt == existing().createdAt) : true)
+        && (incoming().updatedAt == request.time || incoming().updatedAt is timestamp);
+      allow delete: if false;
+    }
+
+    match /plans/{planId} {
+      allow get, list: if true;
+      allow write: if isValidId(planId) && isAdmin() && isValidPlan(incoming());
+    }
+
+    match /collections/{collectionId} {
+      allow list: if (resource.data.status in ['Público', 'Pública', 'Publico', 'Publica', 'Publicado']) 
+        || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      
+      allow get: if isValidId(collectionId) && (
+        (resource.data.status in ['Público', 'Pública', 'Publico', 'Publica', 'Publicado']) 
+        || (isSignedIn() && resource.data.ownerId == request.auth.uid)
+      );
+
+      allow create: if isValidId(collectionId) && isSignedIn()
+        && incoming().keys().hasAll(['title', 'ownerId', 'type'])
+        && isValidCollection(incoming())
+        && incoming().ownerId == request.auth.uid
+        && (incoming().createdAt == request.time || incoming().createdAt is timestamp);
+
+      allow update: if isValidId(collectionId) && (
+        (isSignedIn() && isOwner(existing().ownerId) && isValidCollection(incoming()) && incoming().ownerId == existing().ownerId && (incoming().updatedAt == request.time || incoming().updatedAt is timestamp))
+        || (
+          // Client update: allowed for store selections if the gallery is not a draft/private
+          (!(resource.data.status in ['Rascunho', 'Privado', 'Draft', 'Private']))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clientSelections'])
+        )
+      );
+
+      allow delete: if isValidId(collectionId) && isSignedIn() && isOwner(existing().ownerId);
+
+      // Subcollection for media
+      match /media/{mediaId} {
+        allow list: if (get(/databases/$(database)/documents/collections/$(collectionId)).data.status in ['Público', 'Pública', 'Publico', 'Publica', 'Publicado']) 
+          || (isSignedIn() && get(/databases/$(database)/documents/collections/$(collectionId)).data.ownerId == request.auth.uid);
+        
+        allow get: if isValidId(mediaId) && (
+          (get(/databases/$(database)/documents/collections/$(collectionId)).data.status in ['Público', 'Pública', 'Publico', 'Publica', 'Publicado']) 
+          || (isSignedIn() && get(/databases/$(database)/documents/collections/$(collectionId)).data.ownerId == request.auth.uid)
+        );
+        
+        allow create, update, delete: if isValidId(mediaId) && isSignedIn() 
+          && get(/databases/$(database)/documents/collections/$(collectionId)).data.ownerId == request.auth.uid;
+      }
+
+      // Subcollection for audit logs
+      match /audit_logs/{auditLogId} {
+        allow list: if (
+          (get(/databases/$(database)/documents/collections/$(collectionId)).data.status in ['Público', 'Pública', 'Publico', 'Publica', 'Publicado']) 
+          || (isSignedIn() && get(/databases/$(database)/documents/collections/$(collectionId)).data.ownerId == request.auth.uid)
+        );
+        
+        allow get: if isValidId(auditLogId) && (
+          (get(/databases/$(database)/documents/collections/$(collectionId)).data.status in ['Público', 'Pública', 'Publico', 'Publica', 'Publicado']) 
+          || (isSignedIn() && get(/databases/$(database)/documents/collections/$(collectionId)).data.ownerId == request.auth.uid)
+        );
+        
+        allow create: if isValidId(auditLogId) && (
+          (get(/databases/$(database)/documents/collections/$(collectionId)).data.status in ['Público', 'Pública', 'Publico', 'Publica', 'Publicado'])
+          || (isSignedIn() && get(/databases/$(database)/documents/collections/$(collectionId)).data.ownerId == request.auth.uid)
+        ) && isValidAuditLog(incoming());
+        
+        allow update, delete: if false;
+      }
+    }
+  }
+}

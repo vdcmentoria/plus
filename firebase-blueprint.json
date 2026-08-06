@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Collection": {
+      "title": "Collection",
+      "description": "A photography gallery",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Rascunho", "Público", "Pública"] },
+        "image": { "type": ["string", "null"] },
+        "type": { "type": "string", "enum": ["collection", "folder"] },
+        "slug": { "type": "string" },
+        "parentId": { "type": ["string", "null"] },
+        "ownerId": { "type": "string" },
+        "freePhotos": { "type": "number" },
+        "photoPrice": { "type": "number" },
+        "albumPhotoPrice": { "type": "number" },
+        "storeEnabled": { "type": "boolean" },
+        "allowDownload": { "type": "boolean" },
+        "clientSelections": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "media": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["title", "ownerId", "type"]
+    },
+    "Media": {
+      "title": "Media Item",
+      "description": "A single photo in a collection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "url": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["url", "ownerId"]
+    },
+    "Plan": {
+      "title": "Pricing Plan",
+      "description": "Storage and pricing plan configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "storageGB": { "type": "number" },
+        "priceMonthly": { "type": "number" },
+        "priceAnnual": { "type": "number" },
+        "stripePriceIdMonthly": { "type": "string" },
+        "stripePriceIdAnnual": { "type": "string" },
+        "features": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ctaText": { "type": "string" },
+        "displayOrder": { "type": "number" },
+        "isRecommended": { "type": "boolean" },
+        "category": { "type": "string", "enum": ["top", "bottom"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category"]
+    },
+    "AuditLog": {
+      "title": "Audit Log Item",
+      "description": "Security and activities trace log in a gallery",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "clientName": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "action": { "type": "string" },
+        "imageIndex": { "type": ["number", "null"] },
+        "severity": { "type": "string", "enum": ["info", "warning", "danger"] },
+        "details": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "screenWidth": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clientEmail", "action", "severity"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/collections/{collectionId}": {
+      "schema": "Collection",
+      "description": "Photography galleries and folders"
+    },
+    "/collections/{collectionId}/media/{mediaId}": {
+      "schema": "Media",
+      "description": "Individual media items in a collection"
+    },
+    "/collections/{collectionId}/audit_logs/{auditLogId}": {
+      "schema": "AuditLog",
+      "description": "Security and trace logs of client activities in a gallery"
+    },
+    "/plans/{planId}": {
+      "schema": "Plan",
+      "description": "Pricing and storage plans"
+    }
+  }
+}
