@@ -1,0 +1,78 @@
+[
+  {
+    "title": "Gabriela e Lucas",
+    "date": "01/05/2026",
+    "status": "Público",
+    "image": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__3_-1794181047590-30dd62a7.jpg",
+    "media": [
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__1_-1794181045388-f8f59432.jpg",
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__2_-1794181046568-8ffe2a6f.jpg",
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__3_-1794181047590-30dd62a7.jpg",
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__4_-1794181048623-50760703.jpg",
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__5_-1794181049645-1cd9e6c6.jpg",
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__6_-1794181050632-319afe3a.jpg"
+    ],
+    "type": "collection",
+    "slug": "gabriela-e-lucas",
+    "parentId": null,
+    "ownerId": "obFWpjBfW3gKs381QzUw5eWtjS73",
+    "createdAt": "2026-11-08T23:36:59.260Z",
+    "updatedAt": "2026-11-08T23:38:36.391Z",
+    "id": "col_1794181019259_78444dc4",
+    "_mediaLoaded": true,
+    "mediaSizes": {
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__1_-1794181045388-f8f59432.jpg": 983278,
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__2_-1794181046568-8ffe2a6f.jpg": 678167,
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__3_-1794181047590-30dd62a7.jpg": 598160,
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__4_-1794181048623-50760703.jpg": 646311,
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__5_-1794181049645-1cd9e6c6.jpg": 538166,
+      "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__6_-1794181050632-319afe3a.jpg": 445438
+    },
+    "mediaMetadata": [
+      {
+        "url": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__1_-1794181045388-f8f59432.jpg",
+        "size": 983278,
+        "name": "@felipeeisabelfotografias (1).jpg",
+        "type": "image/jpeg",
+        "uploadedAt": "2026-11-08T23:37:25.807Z"
+      },
+      {
+        "url": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__2_-1794181046568-8ffe2a6f.jpg",
+        "size": 678167,
+        "name": "@felipeeisabelfotografias (2).jpg",
+        "type": "image/jpeg",
+        "uploadedAt": "2026-11-08T23:37:26.849Z"
+      },
+      {
+        "url": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__3_-1794181047590-30dd62a7.jpg",
+        "size": 598160,
+        "name": "@felipeeisabelfotografias (3).jpg",
+        "type": "image/jpeg",
+        "uploadedAt": "2026-11-08T23:37:27.865Z"
+      },
+      {
+        "url": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__4_-1794181048623-50760703.jpg",
+        "size": 646311,
+        "name": "@felipeeisabelfotografias (4).jpg",
+        "type": "image/jpeg",
+        "uploadedAt": "2026-11-08T23:37:28.927Z"
+      },
+      {
+        "url": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__5_-1794181049645-1cd9e6c6.jpg",
+        "size": 538166,
+        "name": "@felipeeisabelfotografias (5).jpg",
+        "type": "image/jpeg",
+        "uploadedAt": "2026-11-08T23:37:29.953Z"
+      },
+      {
+        "url": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__6_-1794181050632-319afe3a.jpg",
+        "size": 445438,
+        "name": "@felipeeisabelfotografias (6).jpg",
+        "type": "image/jpeg",
+        "uploadedAt": "2026-11-08T23:37:30.914Z"
+      }
+    ],
+    "totalStorageBytes": 3889520,
+    "coverPositionY": 22
+  }
+]

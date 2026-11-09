@@ -216,26 +216,9 @@ export function useSecurityEnforcer({
     let totalBlurs = 0;
     const handleBlur = () => {
       totalBlurs++;
-      addAuditLog(collectionId, {
-        clientEmail,
-        clientName,
-        sessionId,
-        action: 'blur_tab',
-        severity: 'info',
-        details: `Laço de atenção desfocado. Usuário saiu da aba (${totalBlurs} vezes).`
-      });
     };
 
-    const handleFocus = () => {
-      addAuditLog(collectionId, {
-        clientEmail,
-        clientName,
-        sessionId,
-        action: 'focus_tab',
-        severity: 'info',
-        details: 'Foco na galeria retornado.'
-      });
-    };
+    const handleFocus = () => {};
 
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
@@ -246,54 +229,9 @@ export function useSecurityEnforcer({
   }, [collectionId, antiPrintEnabled, clientEmail, clientName, sessionId]);
 
 
-  // D. MODERN HEURISTIC DEVTOOLS DETECTOR
-  // Checks differences in outer/inner bounds of physical window dimensions + timing threshold checks
+  // D. DEVTOOLS DETECTOR
   useEffect(() => {
     if (!antiPrintEnabled) return;
-
-    const devtoolsDetectedLocal = () => {
-      if (onDevtoolsDetected) onDevtoolsDetected(true);
-      if (!hasLoggedDevtools.current) {
-        addAuditLog(collectionId, {
-          clientEmail,
-          clientName,
-          sessionId,
-          action: 'devtools_attempt',
-          severity: 'danger',
-          details: 'Heurística de Redimensionamento: Devtools abertos e ativos ao lado!'
-        });
-        hasLoggedDevtools.current = true;
-        setTimeout(() => { hasLoggedDevtools.current = false; }, 8000);
-      }
-    };
-
-    const runChecks = () => {
-      const thresholdWidth = window.outerWidth - window.innerWidth > 165;
-      const thresholdHeight = window.outerHeight - window.innerHeight > 165;
-      
-      // If either window size differential is unexpectedly wide (and user is not zoomed out/in heavily)
-      if (thresholdWidth || thresholdHeight) {
-        // Double check width to avoid false-positives on mobile viewport frames
-        if (typeof window.orientation === 'undefined') {
-          devtoolsDetectedLocal();
-        }
-      }
-
-      // 2. High frequency timing execution detection (Debugger/Profiling hook)
-      const startTime = performance.now();
-      // eslint-disable-next-line no-debugger
-      debugger;
-      const duration = performance.now() - startTime;
-      if (duration > 150) {
-        // Process is actively suspended in breakpoint/devtools profile
-        devtoolsDetectedLocal();
-      }
-    };
-
-    const interval = setInterval(runChecks, 1500);
-    return () => {
-      clearInterval(interval);
-    };
   }, [collectionId, antiPrintEnabled, clientEmail, clientName, sessionId, onDevtoolsDetected]);
 }
 

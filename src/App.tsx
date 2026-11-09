@@ -69,7 +69,8 @@ import {
   Shuffle,
   RefreshCcw,
   RefreshCw,
-  Share2
+  Share2,
+  Award
 } from 'lucide-react';
 
 import { 
@@ -103,6 +104,8 @@ import {
 } from 'firebase/firestore';
 import { auth, db, checkConnection } from './lib/firebase';
 import { LojaSidebar } from './components/LojaSidebar';
+import { PublicWebsiteView } from './components/PublicWebsiteView';
+import { SiteBuilderView } from './components/SiteBuilderView';
 import { 
   SecureCanvasViewer, 
   useSecurityEnforcer, 
@@ -111,6 +114,14 @@ import {
   generateSignedToken, 
   generateLocalSessionSecret 
 } from './components/SecurePhotoProtection';
+import { 
+  isUserAdmin, 
+  calculateUserStorage, 
+  getCollectionStorageBytes, 
+  StorageInfo,
+  isTrialExpired,
+  getTrialDaysRemaining
+} from './lib/storageUtils';
 
 enum OperationType {
   CREATE = 'create',
@@ -174,7 +185,27 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 const primaryColor = '#D05634';
 
-function Navbar({ activeTab, setActiveTab, user }: { activeTab: string, setActiveTab: (t: string) => void, user: User | null }) {
+function Navbar({ 
+  activeTab, 
+  setActiveTab, 
+  user,
+  userProfile,
+  storageInfo,
+  isAdmin,
+  onLogout,
+  globalTheme,
+  onToggleGlobalTheme
+}: { 
+  activeTab: string; 
+  setActiveTab: (t: string) => void; 
+  user: any | null;
+  userProfile?: any;
+  storageInfo?: StorageInfo;
+  isAdmin?: boolean;
+  onLogout?: () => void;
+  globalTheme?: 'light' | 'dark';
+  onToggleGlobalTheme?: () => void;
+}) {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -192,6 +223,7 @@ function Navbar({ activeTab, setActiveTab, user }: { activeTab: string, setActiv
     { id: 'inicio', label: 'INÍCIO' },
     { id: 'planos', label: 'PLANOS' },
     { id: 'colecoes', label: 'COLEÇÕES' },
+    { id: 'site', label: 'SITE' },
   ];
 
   return (
@@ -221,7 +253,24 @@ function Navbar({ activeTab, setActiveTab, user }: { activeTab: string, setActiv
         ))}
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        {/* Global Dark / Light Mode Toggle */}
+        <button
+          type="button"
+          onClick={() => {
+            if (onToggleGlobalTheme) {
+              onToggleGlobalTheme();
+            }
+          }}
+          className="p-2 rounded-xl text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors"
+          title={globalTheme === 'dark' ? 'Mudar para Modo Claro' : 'Mudar para Modo Escuro'}
+        >
+          {globalTheme === 'dark' ? (
+            <Sun className="w-5 h-5 text-amber-400" />
+          ) : (
+            <Moon className="w-5 h-5 text-gray-600" />
+          )}
+        </button>
         {user ? (
           <div className="relative" ref={menuRef}>
             <button 
@@ -229,7 +278,7 @@ function Navbar({ activeTab, setActiveTab, user }: { activeTab: string, setActiv
               className="w-10 h-10 rounded-full overflow-hidden border border-gray-200"
             >
               <img 
-                src={user.photoURL || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&q=80"} 
+                src={user.photoURL || userProfile?.photoURL || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&q=80"} 
                 alt="User avatar" 
                 className="w-full h-full object-cover"
               />
@@ -244,17 +293,37 @@ function Navbar({ activeTab, setActiveTab, user }: { activeTab: string, setActiv
                   className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 z-50 text-sm"
                 >
                   <div className="pb-4 border-b border-gray-100 mb-4">
-                    <p className="font-bold text-gray-900">{user.displayName || 'Usuário'}</p>
-                    <p className="text-gray-500">{user.email}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-gray-900">{user.displayName || userProfile?.displayName || 'Usuário'}</p>
+                      {isAdmin && (
+                        <span className="text-[10px] bg-[#FFF0EB] text-[#D05634] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          Admin
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-gray-500 text-xs truncate mt-0.5">{user.email}</p>
+                    <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      SSO FramePro Conectado
+                    </div>
                   </div>
                   
                   <div className="mb-4">
-                    <div className="flex items-center gap-2 text-gray-700 mb-2">
-                      <Database className="w-4 h-4" />
-                      <span>0 MB de 30 GB usado (0.0%)</span>
+                    <div className="flex items-center justify-between text-gray-700 mb-1.5 text-xs">
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <Database className="w-3.5 h-3.5 text-[#D05634]" />
+                        <span>Armazenamento</span>
+                      </div>
+                      <span className="font-bold text-[#D05634]">{storageInfo?.formattedPercent || '0.0%'}</span>
+                    </div>
+                    <div className="text-[11px] text-gray-500 mb-2">
+                      {storageInfo?.formattedUsed || '0 MB'} de {storageInfo?.formattedLimit || '3 GB'} usado
                     </div>
                     <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-[#D05634] h-full w-[0%]" />
+                      <div 
+                        className={`h-full transition-all duration-500 ${storageInfo?.isOverLimit ? 'bg-red-500' : 'bg-[#D05634]'}`} 
+                        style={{ width: `${Math.min(100, storageInfo?.percent || 0)}%` }} 
+                      />
                     </div>
                   </div>
 
@@ -262,16 +331,34 @@ function Navbar({ activeTab, setActiveTab, user }: { activeTab: string, setActiv
                     <button onClick={() => { setActiveTab('colecoes'); setIsProfileMenuOpen(false); }} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 text-gray-700">
                       <Grid className="w-4 h-4" /> Coleções
                     </button>
+                    <button onClick={() => { setActiveTab('site'); setIsProfileMenuOpen(false); }} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 text-gray-700">
+                      <Globe className="w-4 h-4 text-[#D05634]" /> Meu Site Pro
+                    </button>
                     <button onClick={() => { setActiveTab('configuracoes'); setIsProfileMenuOpen(false); }} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 text-gray-700">
                       <Settings className="w-4 h-4" /> Configurações
                     </button>
-                    <button onClick={() => { setActiveTab('admin'); setIsProfileMenuOpen(false); }} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 text-[#D05634]">
-                      <Settings className="w-4 h-4" /> Painel Admin
-                    </button>
+                    <a
+                      href="https://crm.framepro.click/hub"
+                      className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 text-gray-700"
+                    >
+                      <Globe className="w-4 h-4 text-[#D05634]" /> Ecossistema Frame (Hub)
+                    </a>
+                    {isAdmin && (
+                      <button onClick={() => { setActiveTab('admin'); setIsProfileMenuOpen(false); }} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-[#FFF0EB] text-[#D05634] font-medium">
+                        <Shield className="w-4 h-4" /> Painel Admin
+                      </button>
+                    )}
                   </div>
 
                   <div className="border-t border-gray-100 mt-4 pt-4">
-                    <button onClick={() => signOut(auth)} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-red-50 text-red-500">
+                    <button 
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        if (onLogout) onLogout();
+                        else signOut(auth);
+                      }} 
+                      className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-red-50 text-red-500"
+                    >
                       <ArrowLeft className="w-4 h-4" /> Sair
                     </button>
                   </div>
@@ -300,7 +387,17 @@ function Navbar({ activeTab, setActiveTab, user }: { activeTab: string, setActiv
   );
 }
 
-function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'register' | 'recovery', onToggleMode: () => void, onToggleRecovery: (v: boolean) => void }) {
+function AuthForm({ 
+  mode, 
+  onToggleMode, 
+  onToggleRecovery,
+  onAuthSuccess
+}: { 
+  mode: 'login' | 'register' | 'recovery'; 
+  onToggleMode: () => void; 
+  onToggleRecovery: (v: boolean) => void;
+  onAuthSuccess?: (userObj: any) => void;
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -316,27 +413,80 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
 
     try {
       if (mode === 'login') {
-        await signInWithEmailAndPassword(auth, email, password);
-      } else if (mode === 'register') {
-        const userCred = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCred.user, { displayName: name });
-        // Create user doc on Server
+        // 1. Primary: Unified Login against FramePro CRM database
+        const fpRes = await fetch('/api/auth/framepro-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const fpData = await fpRes.json().catch(() => ({}));
+
+        if (fpRes.ok && fpData.user) {
+          if (onAuthSuccess) {
+            onAuthSuccess(fpData.user);
+          }
+          return;
+        }
+
+        // 2. Fallback: Check if user has a legacy Firebase account and sync it
         try {
-          await fetch(`/api/users/${userCred.user.uid}`, {
+          const fbCred = await signInWithEmailAndPassword(auth, email, password);
+          const syncRes = await fetch(`/api/users/${fbCred.user.uid}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              uid: userCred.user.uid,
-              email: userCred.user.email,
-              displayName: name,
+              uid: fbCred.user.uid,
+              email: fbCred.user.email,
+              displayName: fbCred.user.displayName || email.split('@')[0],
+              photoURL: fbCred.user.photoURL || ''
             })
           });
-        } catch (e) {
-          console.error("Error setting user profile on server:", e);
+          const syncedUser = syncRes.ok ? await syncRes.json() : {
+            uid: fbCred.user.uid,
+            email: fbCred.user.email,
+            displayName: fbCred.user.displayName || email.split('@')[0]
+          };
+          if (onAuthSuccess) {
+            onAuthSuccess(syncedUser);
+          }
+          return;
+        } catch {
+          throw new Error(fpData.error || 'Usuário não encontrado ou senha incorreta.');
+        }
+      } else if (mode === 'register') {
+        // Unified Registration in FramePro CRM database + FramePlus
+        const fpRes = await fetch('/api/auth/framepro-register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, name })
+        });
+        const fpData = await fpRes.json().catch(() => ({}));
+
+        if (!fpRes.ok) {
+          throw new Error(fpData.error || 'Não foi possível criar a conta.');
+        }
+
+        if (fpData.requireVerification) {
+          setSuccess('Conta criada no Ecossistema FramePro! Verifique seu e-mail ou faça login.');
+          return;
+        }
+
+        if (fpData.user && onAuthSuccess) {
+          onAuthSuccess(fpData.user);
+          return;
         }
       } else if (mode === 'recovery') {
-        await sendPasswordResetEmail(auth, email);
-        setSuccess('E-mail de recuperação enviado! Verifique sua caixa de entrada.');
+        const fpRes = await fetch('/api/auth/framepro-reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        if (fpRes.ok) {
+          setSuccess('E-mail de recuperação enviado pelo FramePro! Verifique sua caixa de entrada.');
+        } else {
+          await sendPasswordResetEmail(auth, email);
+          setSuccess('E-mail de recuperação enviado! Verifique sua caixa de entrada.');
+        }
       }
     } catch (err: any) {
       console.error(err);
@@ -344,7 +494,7 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
       else if (err.code === 'auth/wrong-password') setError('Senha incorreta.');
       else if (err.code === 'auth/email-already-in-use') setError('E-mail já está em uso.');
       else if (err.code === 'auth/weak-password') setError('A senha deve ter pelo menos 6 caracteres.');
-      else setError('Ocorreu um erro. Tente novamente.');
+      else setError(err.message || 'Ocorreu um erro. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -352,12 +502,13 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
+    setError('');
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      // Create/Update user doc on Server
+      // Create/Update user doc on Server (links by email if already in FramePro)
       try {
-        await fetch(`/api/users/${result.user.uid}`, {
+        const res = await fetch(`/api/users/${result.user.uid}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -367,6 +518,10 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
             photoURL: result.user.photoURL,
           })
         });
+        if (res.ok) {
+          const userData = await res.json();
+          if (onAuthSuccess) onAuthSuccess(userData);
+        }
       } catch (e) {
         console.error("Error setting user profile on server:", e);
       }
@@ -378,16 +533,20 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] flex flex-col pt-20 px-4">
-      <div className="flex justify-center mb-8">
-        <div className="flex items-center justify-center mb-10">
+    <div className="min-h-screen bg-[#FAFAFA] flex flex-col pt-20 px-4 pb-16">
+      <div className="flex justify-center mb-6">
+        <div className="flex flex-col items-center justify-center mb-6">
           <img 
             src="https://cdn.plus.framepro.click/uploads/m30bw01epp9ab69/1778538221316-logo%20frame%20plus.png" 
             alt="Frame+" 
-            className="h-12 w-auto cursor-pointer"
+            className="h-12 w-auto cursor-pointer mb-3"
             onClick={() => onToggleRecovery(false)}
             referrerPolicy="no-referrer"
           />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-[#FFF0EB] text-[#D05634] tracking-wide uppercase">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#D05634]"></span>
+            Login Unificado Ecossistema FramePro
+          </span>
         </div>
       </div>
 
@@ -397,9 +556,9 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
         </h2>
         <p className="text-gray-500 text-center mb-8 text-sm px-4">
           {mode === 'login' 
-            ? 'Acesse suas galerias e clientes' 
+            ? 'Entre com a mesma conta e senha do seu FramePro CRM' 
             : mode === 'register' 
-              ? 'Comece a entregar galerias incríveis hoje' 
+              ? 'Sua conta funcionará integrada no FramePro e no Frame+' 
               : 'Informe seu e-mail e enviaremos instruções para redefinir sua senha.'}
         </p>
 
@@ -422,7 +581,7 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
           )}
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">E-mail</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">E-mail do FramePro</label>
             <input
               type="email"
               required
@@ -448,7 +607,7 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={mode === 'register' ? 'Mínimo 8 caracteres' : '••••••••••••'}
+                placeholder={mode === 'register' ? 'Mínimo 6 caracteres' : '••••••••••••'}
                 className="w-full px-5 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#D05634]/20 focus:border-[#D05634] bg-gray-50/50"
               />
             </div>
@@ -459,7 +618,7 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
             disabled={isLoading}
             className="w-full bg-[#D05634] text-white py-4 rounded-2xl font-bold hover:bg-[#b84a2b] transition-all transform active:scale-[0.98] disabled:opacity-70"
           >
-            {isLoading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : mode === 'register' ? 'Criar Conta' : 'Enviar Instruções'}
+            {isLoading ? 'Autenticando...' : mode === 'login' ? 'Entrar com FramePro' : mode === 'register' ? 'Criar Conta Unificada' : 'Enviar Instruções'}
           </button>
         </form>
 
@@ -470,14 +629,24 @@ function AuthForm({ mode, onToggleMode, onToggleRecovery }: { mode: 'login' | 'r
               <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-4 text-gray-400 font-medium">Ou continue com</span></div>
             </div>
 
-            <button
-              onClick={handleGoogleLogin}
-              type="button"
-              className="w-full flex items-center justify-center gap-3 py-3.5 border border-gray-200 rounded-2xl font-medium text-gray-700 hover:bg-gray-50 transition-all hover:border-gray-300"
-            >
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-              Entrar com Google
-            </button>
+            <div className="space-y-3">
+              <button
+                onClick={handleGoogleLogin}
+                type="button"
+                className="w-full flex items-center justify-center gap-3 py-3.5 border border-gray-200 rounded-2xl font-medium text-gray-700 hover:bg-gray-50 transition-all hover:border-gray-300"
+              >
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
+                Entrar com Google
+              </button>
+
+              <a
+                href="https://crm.framepro.click/hub"
+                className="w-full flex items-center justify-center gap-2.5 py-3.5 bg-zinc-900 text-white rounded-2xl font-medium text-sm hover:bg-zinc-800 transition-all"
+              >
+                <Globe className="w-4 h-4 text-[#D05634]" />
+                Acessar pelo Hub FramePro (SSO)
+              </a>
+            </div>
           </>
         )}
 
@@ -1316,65 +1485,24 @@ function PricingView({ plans, isAdmin, onEditPlan, onAddPlan, onDeletePlan }: {
   );
 }
 
-const initialCollections = [
-    {
-    id: 1,
-    title: "Isabel Machado",
-    date: "01/05/2026",
-    status: "Público",
-    image: null,
-    type: "collection",
-    slug: "isabel-machado",
-    media: []
-  },
-  {
-    id: 2,
-    title: "Gabriela e Lucas Casamento",
-    date: "16/05/2026",
-    status: "Público",
-    tags: ["Loja"],
-    image: "https://images.unsplash.com/photo-1544928147-79a2dbc1f389?auto=format&fit=crop&w=600&q=80",
-    slug: "gabriela-e-lucas",
-    type: "collection",
-    media: [
-      "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1544928147-79a2dbc1f389?auto=format&fit=crop&w=800&q=80"
-    ]
-  },
-  {
-    id: 3,
-    title: "Gabriela e Lucas",
-    date: "16/05/2026",
-    status: "Pública",
-    tags: ["Pasta"],
-    image: "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=600&q=80",
-    slug: "gabriela-e-lucas-folder",
-    type: "folder"
-  },
-  {
-    id: 4,
-    title: "Videos",
-    date: "23/04/2026",
-    status: "Público",
-    image: null,
-    type: "collection",
-    media: []
-  }
-];
+const initialCollections: any[] = [];
 
 function CollectionsView({ 
   setActiveTab, 
   collections, 
   setCollections, 
   setCurrentCollectionId,
-  user
+  user,
+  userProfile,
+  storageInfo
 }: { 
   setActiveTab: (t: string) => void,
   collections: any[],
   setCollections: any,
   setCurrentCollectionId: any,
-  user: User | null
+  user: User | null,
+  userProfile?: any,
+  storageInfo?: StorageInfo
 }) {
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [folderCoverModalOpen, setFolderCoverModalOpen] = useState(false);
@@ -1646,33 +1774,84 @@ function CollectionsView({
     return itemParentId === folderId;
   });
 
-    const storageUsed = (collections || []).reduce((acc: number, item: any) => {
-      let size = 0;
-      if (item.image) size += item.image.length;
-      if (item.media && Array.isArray(item.media)) {
-        item.media.forEach((m: string) => { if (m) size += m.length; });
-      }
-      return acc + size;
-    }, 0);
-
-    const storageMB = (storageUsed * 0.75) / (1024 * 1024);
-    const storagePercent = Math.min(100, (storageMB / (30 * 1024)) * 100);
+  const computedStorage = storageInfo || calculateUserStorage(collections, userProfile);
+  const isExpired = isTrialExpired(userProfile);
+  const trialDaysRemaining = getTrialDaysRemaining(userProfile);
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-12">
+      {userProfile && !isUserAdmin(user, userProfile) && (
+        <div className="mb-6">
+          {isExpired ? (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex items-center gap-4 text-red-800 animate-in fade-in duration-300">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600 shrink-0">
+                <AlertTriangle className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="flex-1 text-sm text-left">
+                <p className="font-bold text-base mb-0.5 text-red-800">Seu período de teste gratuito expirou!</p>
+                <p className="text-red-700">Seu plano foi travado e novos uploads de fotos não são permitidos. Ative um plano de assinatura para continuar entregando galerias impecáveis para seus clientes.</p>
+              </div>
+              <button 
+                onClick={() => setActiveTab('planos')}
+                className="bg-red-600 hover:bg-red-700 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 whitespace-nowrap"
+              >
+                Ver Planos
+              </button>
+            </div>
+          ) : trialDaysRemaining <= 3 ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-5 flex items-center gap-4 text-yellow-800 animate-in fade-in duration-300">
+              <div className="w-10 h-10 rounded-xl bg-yellow-100 flex items-center justify-center text-yellow-600 shrink-0">
+                <Clock className="w-5 h-5 animate-bounce" />
+              </div>
+              <div className="flex-1 text-sm text-left">
+                <p className="font-bold text-base mb-0.5 text-yellow-800">Período de teste quase expirando!</p>
+                <p className="text-yellow-700">Restam apenas {trialDaysRemaining} {trialDaysRemaining === 1 ? 'dia útil' : 'dias úteis'} de teste gratuito. Para evitar o travamento dos uploads e de suas coleções, ative um plano antes do vencimento.</p>
+              </div>
+              <button 
+                onClick={() => setActiveTab('planos')}
+                className="bg-[#D05634] hover:bg-[#b84a2b] text-white px-6 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 whitespace-nowrap"
+              >
+                Ativar Plano
+              </button>
+            </div>
+          ) : (
+            <div className="bg-[#FFF0EB] border border-[#D05634]/10 rounded-2xl p-5 flex items-center gap-4 text-[#D05634] animate-in fade-in duration-300">
+              <div className="w-10 h-10 rounded-xl bg-[#FFF0EB] flex items-center justify-center text-[#D05634] shrink-0 border border-[#D05634]/10">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div className="flex-1 text-sm text-left">
+                <p className="font-bold text-base mb-0.5 text-[#D05634]">Você está no período de teste gratuito!</p>
+                <p className="text-[#D05634]/80">Seu plano inicial é o {userProfile.planName || 'Basic (3 GB)'} com {userProfile.trialDays || 7} dias grátis. Aproveite e explore todas as funcionalidades. Restam {trialDaysRemaining} dias.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Storage Bar */}
       <div className="border border-gray-200 rounded-2xl p-6 mb-12 bg-white shadow-sm">
-        <div className="flex justify-between text-sm mb-3">
+        <div className="flex justify-between items-center text-sm mb-3">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#D05634] animate-pulse"></div>
+            <div className={`w-2 h-2 rounded-full ${computedStorage.isOverLimit ? 'bg-red-500' : 'bg-[#D05634]'} animate-pulse`}></div>
             <span className="font-bold text-gray-700">Uso de Armazenamento</span>
+            {userProfile?.planName && (
+              <span className="text-[11px] bg-[#FFF0EB] text-[#D05634] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Plano {userProfile.planName}
+              </span>
+            )}
           </div>
-          <span className="text-gray-500 font-bold">{storageMB.toFixed(1)} MB de 30 GB usado ({storagePercent.toFixed(2)}%)</span>
+          <span className={`font-bold ${computedStorage.isOverLimit ? 'text-red-500' : 'text-gray-600'}`}>
+            {computedStorage.formattedUsed} de {computedStorage.formattedLimit} usado ({computedStorage.formattedPercent})
+          </span>
         </div>
         <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden border border-gray-50">
           <div 
-            className="bg-gradient-to-r from-[#D05634] to-[#f4744d] h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(208,86,52,0.3)]" 
-            style={{ width: `${storagePercent}%` }}
+            className={`h-full rounded-full transition-all duration-1000 ease-out ${
+              computedStorage.isOverLimit 
+                ? 'bg-red-500' 
+                : 'bg-gradient-to-r from-[#D05634] to-[#f4744d] shadow-[0_0_10px_rgba(208,86,52,0.3)]'
+            }`} 
+            style={{ width: `${Math.min(100, computedStorage.percent)}%` }}
           ></div>
         </div>
       </div>
@@ -1741,8 +1920,13 @@ function CollectionsView({
       }`}>
         {visibleCollections.length === 0 ? (
           <div className="col-span-full py-20 flex flex-col items-center justify-center text-center bg-white rounded-[2rem] border-2 border-dashed border-gray-100">
-            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6 text-gray-200">
-              <Sparkles className="w-10 h-10" />
+            <div className="mb-6">
+              <img 
+                src="https://cdn.plus.framepro.click/uploads/m30bw01epp9ab69/1778538219920-favicon%20fplus.webp" 
+                alt="Favicon" 
+                className="w-[90px] h-[90px] object-contain grayscale opacity-25 animate-in fade-in zoom-in-95"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">
               {currentFolderId ? 'Esta pasta está vazia' : 'Você ainda não tem coleções'}
@@ -1848,6 +2032,31 @@ function CollectionsView({
               ) : (
                 <div className={`flex flex-col ${viewMode === 'dense' ? 'gap-2' : 'gap-4'}`}>
                   <div className={`aspect-[3/4] rounded-[2rem] bg-white border-2 overflow-hidden relative shadow-sm group-hover:shadow-2xl transition-all duration-500 cursor-pointer border-gray-50 group-hover:border-white group-hover:-translate-y-1`}>
+                    {/* Overlaid Association Seals on Gallery Card */}
+                    {item.associationSeals && item.associationSeals.length > 0 && (
+                      <div className="absolute top-3 left-3 z-30 flex flex-wrap gap-1.5 max-w-[70%] pointer-events-none">
+                        {item.associationSeals.map((seal: any, idx: number) => (
+                          <div 
+                            key={seal.id || idx}
+                            className={`px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md ${
+                              viewMode === 'dense' ? 'text-[8px]' : 'text-[9px]'
+                            }`}
+                          >
+                            {seal.iconUrl ? (
+                              <img src={seal.iconUrl} alt={seal.name} className="w-3 h-3 rounded-full object-contain shrink-0" />
+                            ) : (
+                              <Award className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                            )}
+                            <span className="font-bold truncate max-w-[80px]">{seal.name}</span>
+                            {seal.badgeText && viewMode !== 'dense' && (
+                              <span className="text-[7.5px] uppercase tracking-wider text-[#FF9E80] font-extrabold truncate max-w-[50px]">
+                                · {seal.badgeText}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none" />
                     <div className="absolute top-4 right-4 z-30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all translate-y-[-10px] group-hover:translate-y-0 duration-300">
                       {item.parentId && (
@@ -1888,7 +2097,7 @@ function CollectionsView({
                     )}
                     <div className={`absolute ${viewMode === 'dense' ? 'bottom-2 left-2 right-2' : 'bottom-4 left-4 right-4'} z-20 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300`}>
                       <a 
-                        href={`${window.location.origin}${window.location.pathname}?gallery=${item.slug || item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                        href={`${window.location.origin}${window.location.pathname}?gallery=${item.slug || item.id || item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={`bg-white/90 backdrop-blur-md ${viewMode === 'dense' ? 'px-2 py-1' : 'px-4 py-2'} rounded-xl flex items-center justify-between shadow-lg hover:bg-white transition-colors cursor-pointer`}
@@ -2152,12 +2361,16 @@ function CollectionsView({
 function EditorView({ 
   setActiveTab, 
   collection,
-  onUpdateCollection
+  onUpdateCollection,
+  userProfile,
+  storageInfo
 }: { 
   key?: React.Key;
   setActiveTab: (t: string) => void;
   collection: any;
-  onUpdateCollection: (id: number, updates: any) => void;
+  onUpdateCollection: (id: number | string, updates: any) => void;
+  userProfile?: any;
+  storageInfo?: StorageInfo;
 }) {
   const getThemeVars = (themeId?: string) => {
     const theme = themeId || collection?.theme || 'light';
@@ -2191,6 +2404,12 @@ function EditorView({
   const [selectedClientDetails, setSelectedClientDetails] = useState<any | null>(null);
   const [showAuditDashboard, setShowAuditDashboard] = useState(false);
   const [isR2Configured, setIsR2Configured] = useState<boolean | null>(null);
+
+  // Association Seals State for Gallery Cover
+  const [sealNameInput, setSealNameInput] = useState('');
+  const [sealBadgeTextInput, setSealBadgeTextInput] = useState('');
+  const [isUploadingSeal, setIsUploadingSeal] = useState(false);
+  const sealFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // Check if Cloudflare R2 is configured and update state
@@ -2302,6 +2521,11 @@ function EditorView({
         return;
       }
       
+      if (userProfile && isTrialExpired(userProfile)) {
+        alert("⚠️ Seu período de teste gratuito expirou! Seu plano foi travado e novos uploads não são permitidos. Ative um plano pago para liberar espaço e novos uploads.");
+        return;
+      }
+      
       const files = Array.from(e.target.files);
       setUploadQueue(files);
       setIsUploading(true);
@@ -2309,16 +2533,25 @@ function EditorView({
       setCurrentFileIndex(0);
       setShowToast(false);
       
-      // Cloudflare R2 Upload System enabled
-      const compressedImages: string[] = [];
+      const currentSizes: Record<string, number> = { ...(collection?.mediaSizes || {}) };
+      const currentMeta: any[] = Array.isArray(collection?.mediaMetadata) ? [...collection.mediaMetadata] : [];
+      const newUrls: string[] = [];
+      let totalBytesAdded = 0;
       const totalFiles = files.length;
       
       for (let i = 0; i < totalFiles; i++) {
         setCurrentFileIndex(i);
-        setUploadProgress(0);
+        setUploadProgress(10);
         const file = files[i] as File;
+
+        // Check remaining quota
+        if (storageInfo && (storageInfo.totalBytes + totalBytesAdded + file.size) > (storageInfo.limitMB * 1024 * 1024)) {
+          alert(`Limite de armazenamento (${storageInfo.formattedLimit}) atingido! O arquivo "${file.name}" ultrapassa sua cota disponível. Faça upgrade do seu plano para liberar mais espaço.`);
+          break;
+        }
         
         let r2Url = '';
+        let fileSize = file.size;
         try {
           const formData = new FormData();
           formData.append('file', file);
@@ -2327,53 +2560,49 @@ function EditorView({
             method: 'POST',
             body: formData,
           });
-          setUploadProgress(80);
+          setUploadProgress(85);
           if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.error || `Erro ao enviar ${file.name}`);
           }
           const data = await response.json();
           r2Url = data.url;
+          if (typeof data.size === 'number' && data.size > 0) {
+            fileSize = data.size;
+          }
         } catch (uploadErr: any) {
           console.error(`Erro no R2 upload de ${file.name}:`, uploadErr);
           alert(`Erro ao fazer upload de ${file.name}: ${uploadErr?.message || 'Erro de conexão'}`);
         }
-        const base64Url = '';
-
-        setUploadProgress(50);
-
-        const compressedBase64 = ''; if (false) { const _ignored = await new Promise<string>((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-            const maxDim = 800;
-            if (width > maxDim || height > maxDim) {
-              if (width > height) {
-                height = Math.round((height * maxDim) / width);
-                width = maxDim;
-              } else {
-                width = Math.round((width * maxDim) / height);
-                height = maxDim;
-              }
-            }
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.5));
-          };
-          img.src = base64Url;
-        }); }
         
         setUploadProgress(100);
         if (r2Url) {
-          setMedia(prev => [...prev, r2Url]);
+          newUrls.push(r2Url);
+          currentSizes[r2Url] = fileSize;
+          currentMeta.push({
+            url: r2Url,
+            size: fileSize,
+            name: file.name,
+            type: file.type,
+            uploadedAt: new Date().toISOString()
+          });
+          totalBytesAdded += fileSize;
         }
         
         // Allow UI to update
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, 40));
+      }
+
+      if (newUrls.length > 0) {
+        const updatedMedia = [...media, ...newUrls];
+        setMedia(updatedMedia);
+        const newTotalBytes = updatedMedia.reduce((sum, u) => sum + (currentSizes[u] || 3.5 * 1024 * 1024), 0);
+        onUpdateCollection(collection.id, {
+          media: updatedMedia,
+          mediaSizes: currentSizes,
+          mediaMetadata: currentMeta,
+          totalStorageBytes: newTotalBytes
+        });
       }
       
       setIsUploading(false);
@@ -2465,7 +2694,7 @@ function EditorView({
             Adicionar Mídia
           </button>
           <a 
-            href={`${window.location.origin}${window.location.pathname}?gallery=${collection?.slug || (collection?.title || 'galeria').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
+            href={`${window.location.origin}${window.location.pathname}?gallery=${collection?.slug || collection?.id || (collection?.title || 'galeria').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => {
@@ -2607,9 +2836,37 @@ function EditorView({
                   
                   <button 
                     onClick={() => {
+                      const deletedUrls = selectedMediaIndices.map(i => media[i]).filter(Boolean);
                       const newMedia = media.filter((_, i) => !selectedMediaIndices.includes(i));
+                      
+                      const newMediaSizes = { ...(collection?.mediaSizes || {}) };
+                      deletedUrls.forEach(u => delete newMediaSizes[u]);
+                      
+                      const newMediaMetadata = Array.isArray(collection?.mediaMetadata)
+                        ? collection.mediaMetadata.filter((m: any) => !deletedUrls.includes(m?.url))
+                        : [];
+                      
+                      const newTotalBytes = newMedia.reduce((sum, u) => {
+                        return sum + (newMediaSizes[u] || 3.5 * 1024 * 1024);
+                      }, 0);
+
                       setMedia(newMedia);
                       setSelectedMediaIndices([]);
+
+                      onUpdateCollection(collection.id, { 
+                        media: newMedia,
+                        mediaSizes: newMediaSizes,
+                        mediaMetadata: newMediaMetadata,
+                        totalStorageBytes: newTotalBytes
+                      });
+
+                      if (deletedUrls.length > 0) {
+                        fetch('/api/delete-files', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ urls: deletedUrls })
+                        }).catch(e => console.warn('R2 delete error:', e));
+                      }
                     }}
                     className="flex items-center gap-2 bg-[#D05634] text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-[#b84a2b] transition-colors"
                   >
@@ -2956,6 +3213,236 @@ function EditorView({
                     <span className="text-xs font-medium">Contorno</span>
                   </button>
                 </div>
+              </div>
+
+              {/* SELOS DE ASSOCIAÇÕES (BRIDE, INSPIRATION, ETC.) COM UPLOAD E TEXTO */}
+              <div className="border border-gray-200 rounded-xl p-4 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-[#D05634] flex items-center gap-2">
+                    <Award className="w-4 h-4 text-[#D05634]" />
+                    Selos de Associações
+                  </h4>
+                  <span className="text-[10px] font-bold bg-[#FFF0EB] text-[#D05634] px-2 py-0.5 rounded-full uppercase">
+                    {(collection?.associationSeals || []).length} ativos
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Adicione selos de associações que aparecerão automaticamente sobrepostos no card da galeria e na capa do evento.
+                </p>
+
+                {/* Upload de Imagem do Selo */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                    Upload do Selo / Logo
+                  </label>
+                  <input 
+                    type="file"
+                    ref={sealFileInputRef}
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        setIsUploadingSeal(true);
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        const res = await fetch('/api/upload', {
+                          method: 'POST',
+                          body: formData
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          const uploadedUrl = data.url;
+                          const name = sealNameInput.trim() || file.name.replace(/\.[^/.]+$/, '').toUpperCase();
+                          const currentSeals = collection?.associationSeals || [];
+                          const newSeal = {
+                            id: `seal_${Date.now()}`,
+                            name,
+                            badgeText: sealBadgeTextInput.trim() || undefined,
+                            iconUrl: uploadedUrl
+                          };
+                          onUpdateCollection(collection.id, {
+                            associationSeals: [...currentSeals, newSeal]
+                          });
+                          setSealNameInput('');
+                          setSealBadgeTextInput('');
+                        }
+                      } catch (err) {
+                        console.error('Erro ao enviar imagem do selo:', err);
+                      } finally {
+                        setIsUploadingSeal(false);
+                        if (sealFileInputRef.current) sealFileInputRef.current.value = '';
+                      }
+                    }}
+                  />
+                  <button 
+                    type="button"
+                    disabled={isUploadingSeal}
+                    onClick={() => sealFileInputRef.current?.click()}
+                    className="w-full py-2.5 px-3 border border-dashed border-gray-300 hover:border-[#D05634] rounded-xl text-xs font-semibold text-gray-700 hover:text-[#D05634] flex items-center justify-center gap-2 transition-all bg-gray-50 hover:bg-[#FFF0EB]/40 disabled:opacity-50"
+                  >
+                    <Upload className="w-4 h-4 text-[#D05634]" />
+                    <span>{isUploadingSeal ? 'Enviando Selo...' : 'Upload de Imagem do Selo (PNG / SVG)'}</span>
+                  </button>
+                </div>
+
+                {/* Campo de Texto para Nome do Selo */}
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                      Nome da Associação / Selo
+                    </label>
+                    <input 
+                      type="text"
+                      placeholder="Ex: Bride Association, Inspiration Photographers"
+                      value={sealNameInput}
+                      onChange={(e) => setSealNameInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && sealNameInput.trim()) {
+                          e.preventDefault();
+                          const currentSeals = collection?.associationSeals || [];
+                          const newSeal = {
+                            id: `seal_${Date.now()}`,
+                            name: sealNameInput.trim(),
+                            badgeText: sealBadgeTextInput.trim() || undefined
+                          };
+                          onUpdateCollection(collection.id, {
+                            associationSeals: [...currentSeals, newSeal]
+                          });
+                          setSealNameInput('');
+                          setSealBadgeTextInput('');
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#D05634] bg-white text-gray-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                      Texto do Badge (Opcional)
+                    </label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text"
+                        placeholder="Ex: Membro, Awarded, Fearless"
+                        value={sealBadgeTextInput}
+                        onChange={(e) => setSealBadgeTextInput(e.target.value)}
+                        className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#D05634] bg-white text-gray-900"
+                      />
+                      <button 
+                        type="button"
+                        disabled={!sealNameInput.trim()}
+                        onClick={() => {
+                          if (!sealNameInput.trim()) return;
+                          const currentSeals = collection?.associationSeals || [];
+                          const newSeal = {
+                            id: `seal_${Date.now()}`,
+                            name: sealNameInput.trim(),
+                            badgeText: sealBadgeTextInput.trim() || undefined
+                          };
+                          onUpdateCollection(collection.id, {
+                            associationSeals: [...currentSeals, newSeal]
+                          });
+                          setSealNameInput('');
+                          setSealBadgeTextInput('');
+                        }}
+                        className="px-4 py-2 bg-[#D05634] hover:bg-[#b84a2b] text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-40"
+                      >
+                        Adicionar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Selos Rápidos Pré-configurados (Presets) */}
+                <div>
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
+                    Selos Populares (Clique para Alternar)
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: 'bride', name: 'Bride Association', badgeText: 'Membro' },
+                      { id: 'inspiration', name: 'Inspiration Photographers', badgeText: 'Awarded' },
+                      { id: 'fearless', name: 'Fearless Photographers', badgeText: 'Member' },
+                      { id: 'ispwp', name: 'ISPWP International', badgeText: 'Member' },
+                      { id: 'mywed', name: 'MyWed', badgeText: 'Award' },
+                      { id: 'fineart', name: 'Fine Art Wedding', badgeText: 'Certificado' }
+                    ].map((preset) => {
+                      const currentSeals: any[] = collection?.associationSeals || [];
+                      const isSelected = currentSeals.some((s: any) => s.name?.toLowerCase() === preset.name.toLowerCase());
+
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            let nextSeals = [...currentSeals];
+                            if (isSelected) {
+                              nextSeals = nextSeals.filter((s: any) => s.name?.toLowerCase() !== preset.name.toLowerCase());
+                            } else {
+                              nextSeals.push({
+                                id: `preset_${preset.id}_${Date.now()}`,
+                                name: preset.name,
+                                badgeText: preset.badgeText
+                              });
+                            }
+                            onUpdateCollection(collection.id, { associationSeals: nextSeals });
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                            isSelected 
+                              ? 'bg-[#D05634] text-white border-[#D05634] shadow-sm' 
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-900'
+                          }`}
+                        >
+                          {isSelected ? '✓ ' : '+ '}{preset.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Lista de Selos Ativos da Galeria */}
+                {(collection?.associationSeals || []).length > 0 && (
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                      Selos Ativos nesta Galeria
+                    </span>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {(collection?.associationSeals || []).map((seal: any, idx: number) => (
+                        <div 
+                          key={seal.id || idx}
+                          className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 text-xs"
+                        >
+                          <div className="flex items-center gap-2 truncate pr-2">
+                            {seal.iconUrl ? (
+                              <img src={seal.iconUrl} alt={seal.name} className="w-5 h-5 rounded object-contain bg-white border border-gray-200 shrink-0" />
+                            ) : (
+                              <Award className="w-4 h-4 text-amber-500 shrink-0" />
+                            )}
+                            <div className="truncate">
+                              <span className="font-bold text-gray-900 truncate block">{seal.name}</span>
+                              {seal.badgeText && (
+                                <span className="text-[10px] text-[#D05634] font-semibold block">{seal.badgeText}</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextSeals = (collection?.associationSeals || []).filter((_: any, i: number) => i !== idx);
+                              onUpdateCollection(collection.id, { associationSeals: nextSeals });
+                            }}
+                            className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors"
+                            title="Remover Selo"
+                          >
+                            <Trash className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           ) : editorTab === 'layout' ? (
@@ -3396,6 +3883,28 @@ function EditorView({
                         )}
 
                         {collection.coverLayout === 'divisor' && <div className="w-10 h-0.5 bg-white mt-4 opacity-60"></div>}
+
+                        {/* Overlaid Association Seals on Cover */}
+                        {collection?.associationSeals && collection.associationSeals.length > 0 && (
+                          <div className="flex flex-wrap items-center justify-center gap-2 mt-4 z-20">
+                            {collection.associationSeals.map((seal: any, idx: number) => (
+                              <div 
+                                key={seal.id || idx}
+                                className="px-3 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/25 text-white flex items-center gap-1.5 shadow-lg"
+                              >
+                                {seal.iconUrl ? (
+                                  <img src={seal.iconUrl} alt={seal.name} className="w-4 h-4 rounded-full object-contain shrink-0" />
+                                ) : (
+                                  <Award className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                )}
+                                <span className="text-[11px] font-bold tracking-tight">{seal.name}</span>
+                                {seal.badgeText && (
+                                  <span className="text-[9px] uppercase tracking-wider text-[#FF9E80] font-extrabold ml-0.5">· {seal.badgeText}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -6023,11 +6532,6 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('copy', handleCopy);
     window.addEventListener('contextmenu', handleContextMenu);
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    document.addEventListener('mouseleave', handleMouseLeave);
-    document.addEventListener('mouseenter', handleMouseEnter);
 
     return () => {
       window.removeEventListener('keydown', handleScreenshotKeyDown);
@@ -6035,11 +6539,6 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('copy', handleCopy);
       window.removeEventListener('contextmenu', handleContextMenu);
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('mouseleave', handleMouseLeave);
-      document.removeEventListener('mouseenter', handleMouseEnter);
     };
   }, [collection?.antiPrintEnabled]);
 
@@ -6078,6 +6577,16 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
           const sanitizedKey = clientEmail.trim().replace(/\./g, '_');
           const cachedName = localStorage.getItem(`client_name_${collection.id}`) || '';
           
+          // Verify if selections actually changed compared to currently stored selections to avoid update loops
+          const storedData = collection.clientSelections?.[sanitizedKey];
+          const storedSelections = storedData?.selection || [];
+          const isSame = storedSelections.length === selections.length && 
+                         storedSelections.every((val: number, idx: number) => val === selections[idx]);
+          
+          if (isSame) {
+            return; // Skip if no change in selections
+          }
+
           const newSelections = {
             ...(collection.clientSelections || {}),
             [sanitizedKey]: {
@@ -6110,10 +6619,13 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
       const data = collection.clientSelections[key];
       if (data && data.selection) {
         const urls = data.selection.map((idx: number) => collection.media[idx]).filter(Boolean);
-        setPhotobookSelection(urls);
+        // Only update state if URLs list is different to avoid state-trigger loop
+        if (JSON.stringify(urls) !== JSON.stringify(photobookSelection)) {
+          setPhotobookSelection(urls);
+        }
       }
     }
-  }, [isClientAuthenticated, clientEmail, collection.clientSelections, collection.media]);
+  }, [isClientAuthenticated, clientEmail, collection.clientSelections, collection.media, photobookSelection]);
 
   const startBatchDownload = async () => {
     if (!collection.media || collection.media.length === 0) return;
@@ -6659,6 +7171,28 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
               )}
 
               {collection.coverLayout === 'divisor' && <div className="w-12 h-0.5 bg-white mt-6 opacity-60"></div>}
+
+              {/* Overlaid Association Seals on Public Gallery Cover */}
+              {collection?.associationSeals && collection.associationSeals.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-6 z-20">
+                  {collection.associationSeals.map((seal: any, idx: number) => (
+                    <div 
+                      key={seal.id || idx}
+                      className="px-4 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/25 text-white flex items-center gap-2 shadow-xl"
+                    >
+                      {seal.iconUrl ? (
+                        <img src={seal.iconUrl} alt={seal.name} className="w-4 h-4 rounded-full object-contain shrink-0" />
+                      ) : (
+                        <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                      )}
+                      <span className="text-xs font-bold tracking-tight">{seal.name}</span>
+                      {seal.badgeText && (
+                        <span className="text-[10px] uppercase tracking-wider text-[#FF9E80] font-extrabold ml-0.5">· {seal.badgeText}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -7086,52 +7620,314 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
 
 const bc = new BroadcastChannel('frame_sync');
 
-function AdminView({ setActiveTab: setOuterActiveTab }: { setActiveTab?: (tab: string) => void }) {
-  const [activeTab, setActiveTab] = useState('armazenamento');
+function AdminView({ 
+  setActiveTab: setOuterActiveTab,
+  user,
+  isAdmin
+}: { 
+  setActiveTab?: (tab: string) => void;
+  user?: any | null;
+  isAdmin?: boolean;
+}) {
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'armazenamento' | 'planos'>('usuarios');
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [allCollections, setAllCollections] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [r2Status, setR2Status] = useState<any>(null);
+  const [settings, setSettings] = useState<any>({
+    defaultTrialDays: 7,
+    defaultInitialPlan: "Basic (3 GB)"
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
+
+  // Fetch real users and collections for Admin
+  const loadAdminData = async () => {
+    setIsLoading(true);
+    try {
+      const [usersRes, collsRes, healthRes, settingsRes] = await Promise.all([
+        fetch('/api/users'),
+        fetch('/api/collections'),
+        fetch('/api/health'),
+        fetch('/api/settings')
+      ]);
+
+      if (usersRes.ok) {
+        const users = await usersRes.json();
+        setUsersList(Array.isArray(users) ? users : []);
+      }
+      if (collsRes.ok) {
+        const colls = await collsRes.json();
+        setAllCollections(Array.isArray(colls) ? colls : []);
+      }
+      if (healthRes.ok) {
+        const health = await healthRes.json();
+        setR2Status(health);
+      }
+      if (settingsRes.ok) {
+        const sett = await settingsRes.json();
+        setSettings(sett);
+      }
+    } catch (err) {
+      console.error("Error loading admin data:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadAdminData();
+    }
+  }, [isAdmin]);
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-8 text-center max-w-lg mx-auto">
+        <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mb-6 shadow-sm">
+          <ShieldAlert className="w-10 h-10" />
+        </div>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Acesso Restrito</h1>
+        <p className="text-gray-500 text-sm mb-8 leading-relaxed">
+          Esta área é exclusiva para administradores da plataforma com permissões avançadas de gerenciamento.
+        </p>
+        <button 
+          onClick={() => setOuterActiveTab ? setOuterActiveTab('colecoes') : undefined}
+          className="bg-[#D05634] text-white px-8 py-3.5 rounded-2xl font-bold text-sm hover:bg-[#b84a2b] transition-all shadow-md active:scale-95"
+        >
+          Voltar para Minhas Coleções
+        </button>
+      </div>
+    );
+  }
+
+  // Calculate platform totals
+  const totalPlatformBytes = allCollections.reduce((acc, c) => acc + getCollectionStorageBytes(c), 0);
+  const totalPlatformMB = totalPlatformBytes / (1024 * 1024);
+  const totalPlatformGB = totalPlatformBytes / (1024 * 1024 * 1024);
+  const formattedPlatformStorage = totalPlatformGB >= 1 ? `${totalPlatformGB.toFixed(2)} GB` : `${totalPlatformMB.toFixed(1)} MB`;
+
+  // Compute storage for each user
+  const enrichedUsers = usersList.map(u => {
+    const userColls = allCollections.filter(c => c.ownerId?.toLowerCase() === u.uid?.toLowerCase());
+    const storage = calculateUserStorage(userColls, u);
+    return {
+      ...u,
+      collectionsCount: userColls.length,
+      storage
+    };
+  });
+
+  // Filter users
+  const filteredUsers = enrichedUsers.filter(u => {
+    const matchesSearch = 
+      (u.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (u.email || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? u.status !== 'Inativo' : u.status === 'Inativo');
+    const matchesRole = roleFilter === 'all' || (roleFilter === 'admin' ? u.role === 'admin' : u.role !== 'admin');
+    return matchesSearch && matchesStatus && matchesRole;
+  });
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSettings(true);
+    setSaveSettingsSuccess(false);
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setSettings(updated);
+        setSaveSettingsSuccess(true);
+        setTimeout(() => setSaveSettingsSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error("Error saving settings:", err);
+      alert("Erro ao salvar as configurações.");
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+
+    try {
+      const response = await fetch(`/api/users/${editingUser.uid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editingUser,
+          storageLimitGB: Number(editingUser.storageLimitGB || 30)
+        })
+      });
+
+      if (response.ok) {
+        const saved = await response.json();
+        setUsersList(prev => prev.map(u => u.uid === saved.uid ? { ...u, ...saved } : u));
+        setEditingUser(null);
+      }
+    } catch (err) {
+      console.error("Error updating user:", err);
+      alert("Erro ao salvar alterações do usuário.");
+    }
+  };
+
+  const handleToggleAdminRole = async (targetUser: any) => {
+    const newRole = targetUser.role === 'admin' ? 'user' : 'admin';
+    const confirmMsg = newRole === 'admin' 
+      ? `Tornar ${targetUser.displayName || targetUser.email} um Administrador?`
+      : `Remover privilégios de Administrador de ${targetUser.displayName || targetUser.email}?`;
+    
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const response = await fetch(`/api/users/${targetUser.uid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...targetUser,
+          role: newRole,
+          isAdmin: newRole === 'admin'
+        })
+      });
+
+      if (response.ok) {
+        const updated = await response.json();
+        setUsersList(prev => prev.map(u => u.uid === updated.uid ? { ...u, ...updated } : u));
+      }
+    } catch (err) {
+      console.error("Error toggling role:", err);
+    }
+  };
+
+  const exportCSV = () => {
+    const headers = "UID,Nome,Email,Função,Plano,Limite_GB,Usado_MB,Usado_Percent,Status\n";
+    const rows = enrichedUsers.map(u => 
+      `"${u.uid}","${u.displayName || ''}","${u.email || ''}","${u.role || 'user'}","${u.planName || 'Luz'}","${u.storage.limitGB}","${u.storage.totalMB.toFixed(1)}","${u.storage.formattedPercent}","${u.status || 'Ativo'}"`
+    ).join("\n");
+
+    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `usuarios_frameplus_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-8 py-12">
       <div className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-gray-100 pb-6">
         <div className="text-left">
-          <h1 className="text-3xl font-bold text-gray-901 mb-2 font-sans">Administração do Sistema</h1>
-          <p className="text-gray-500 text-sm">Gerencie usuários, armazenamento e planos da plataforma.</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-gray-900 font-sans">Administração do Sistema</h1>
+            <span className="bg-[#FFF0EB] text-[#D05634] text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider border border-[#D05634]/20">
+              Super Admin
+            </span>
+          </div>
+          <p className="text-gray-500 text-sm mt-1">Gerencie permissões, cotas de armazenamento e usuários da plataforma multitenant.</p>
         </div>
-        {setOuterActiveTab && (
+        <div className="flex items-center gap-3">
           <button 
-            onClick={() => setOuterActiveTab('configuracoes')}
-            className="flex items-center gap-2 px-5 py-3.5 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all shadow-sm group active:scale-95"
+            onClick={loadAdminData}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
           >
-            <Settings className="w-4 h-4 text-[#D05634] group-hover:rotate-45 transition-transform" />
-            Configurações de Gateway
+            <RefreshCw className="w-3.5 h-3.5 text-gray-500" />
+            Atualizar Dados
           </button>
-        )}
+          {setOuterActiveTab && (
+            <button 
+              onClick={() => setOuterActiveTab('configuracoes')}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#FFF0EB] hover:bg-[#ffe6de] border border-[#D05634]/20 text-[#D05634] rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-sm active:scale-95"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Configurações
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Top Metrics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-[#FFF0EB] text-[#D05634] flex items-center justify-center shrink-0">
+            <Users className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Usuários Registrados</div>
+            <div className="text-2xl font-bold text-gray-900">{usersList.length}</div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
+            <HardDrive className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Armazenamento Total Usado</div>
+            <div className="text-2xl font-bold text-gray-900">{formattedPlatformStorage}</div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Grid className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Coleções Criadas</div>
+            <div className="text-2xl font-bold text-gray-900">{allCollections.length}</div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-green-50 text-green-600 flex items-center justify-center shrink-0">
+            <Shield className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Cloudflare R2</div>
+            <div className="text-sm font-bold text-green-700 flex items-center gap-1.5 mt-1">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              {r2Status?.r2Configured ? 'Conectado e Ativo' : 'Operacional'}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex justify-center mb-10">
-        <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button 
-            onClick={() => setActiveTab('armazenamento')}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all ${
-              activeTab === 'armazenamento' 
-                ? 'bg-[#D05634] text-white shadow-sm' 
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <HardDrive className="w-4 h-4" /> Armazenamento
-          </button>
+        <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
           <button 
             onClick={() => setActiveTab('usuarios')}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'usuarios' 
                 ? 'bg-[#D05634] text-white shadow-sm' 
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <Users className="w-4 h-4" /> Usuários
+            <Users className="w-4 h-4" /> Usuários ({usersList.length})
+          </button>
+          <button 
+            onClick={() => setActiveTab('armazenamento')}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === 'armazenamento' 
+                ? 'bg-[#D05634] text-white shadow-sm' 
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <HardDrive className="w-4 h-4" /> Armazenamento e R2
           </button>
           <button 
             onClick={() => setActiveTab('planos')}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'planos' 
                 ? 'bg-[#D05634] text-white shadow-sm' 
                 : 'text-gray-500 hover:text-gray-900'
@@ -7143,116 +7939,274 @@ function AdminView({ setActiveTab: setOuterActiveTab }: { setActiveTab?: (tab: s
       </div>
 
       <div>
-        {activeTab === 'armazenamento' && (
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm max-w-2xl mx-auto">
-            <div className="flex items-center gap-2 mb-6">
-              <HardDrive className="w-5 h-5 text-[#D05634]" />
-              <h3 className="text-xl font-bold text-gray-900">Armazenamento</h3>
-            </div>
-            
-            <div className="mb-6">
-              <label className="block text-sm font-bold text-gray-800 mb-1">Provedor de Armazenamento</label>
-              <p className="text-xs text-gray-500 mb-4">Configure onde os arquivos da plataforma serão salvos.</p>
-              
-              <label className="block text-xs font-semibold text-gray-700 mb-2">Provedor Ativo</label>
-              <div className="relative mb-4">
-                <select className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-sm appearance-none outline-none focus:border-[#D05634]">
-                  <option>Dropbox</option>
-                  <option>Integrado (PocketBase)</option>
-                  <option>Supabase</option>
-                </select>
-                <ChevronDown className="w-4 h-4 text-gray-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-
-              <label className="block text-xs font-semibold text-gray-700 mb-2">Pasta Base</label>
-              <input type="text" defaultValue="/frameplus" className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-sm outline-none focus:border-[#D05634] mb-4" />
-
-              <button className="flex items-center gap-2 text-sm font-semibold text-gray-600 border border-gray-200 rounded-lg px-4 py-2 hover:bg-gray-50 transition-colors">
-                <Upload className="w-4 h-4" /> Testar Dropbox
-              </button>
-            </div>
-            
-            <div className="flex justify-end pt-6 border-t border-gray-100">
-              <button className="flex items-center gap-2 bg-[#D05634] text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#b84a2b] transition-colors">
-                <HardDrive className="w-4 h-4" /> Salvar Configurações
-              </button>
-            </div>
-          </div>
-        )}
-
         {activeTab === 'usuarios' && (
           <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
               <div className="relative flex-1 w-full max-w-sm">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input type="text" placeholder="Buscar por email ou nome..." className="w-full bg-gray-50 border-none rounded-lg pl-10 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#D05634]" />
+                <input 
+                  type="text" 
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  placeholder="Buscar por email ou nome..." 
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#D05634]/20 focus:border-[#D05634]" 
+                />
               </div>
               <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
-                <select className="bg-gray-50 border-none rounded-lg px-4 py-2.5 text-sm outline-none">
-                  <option>Todos os Status</option>
+                <select 
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#D05634]"
+                >
+                  <option value="all">Todos os Status</option>
+                  <option value="active">Apenas Ativos</option>
+                  <option value="inactive">Apenas Inativos</option>
                 </select>
-                <select className="bg-gray-50 border-none rounded-lg px-4 py-2.5 text-sm outline-none">
-                  <option>Mais Recentes</option>
+                <select 
+                  value={roleFilter}
+                  onChange={e => setRoleFilter(e.target.value)}
+                  className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#D05634]"
+                >
+                  <option value="all">Todas as Funções</option>
+                  <option value="admin">Apenas Admins</option>
+                  <option value="user">Apenas Usuários</option>
                 </select>
-                <button className="flex items-center gap-2 text-sm font-medium border border-gray-200 px-4 py-2.5 rounded-lg hover:bg-gray-50 whitespace-nowrap">
+                <button 
+                  onClick={exportCSV}
+                  className="flex items-center gap-2 text-sm font-semibold border border-gray-200 px-4 py-2.5 rounded-xl hover:bg-gray-50 whitespace-nowrap text-gray-700 active:scale-95 transition-all"
+                >
                   <Download className="w-4 h-4" /> Exportar CSV
                 </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 border-b border-gray-100">
-                    <th className="pb-3 font-medium whitespace-nowrap">Usuário</th>
-                    <th className="pb-3 font-medium whitespace-nowrap">Status</th>
-                    <th className="pb-3 font-medium whitespace-nowrap min-w-[200px]">Armazenamento</th>
-                    <th className="pb-3 font-medium whitespace-nowrap">Data Fim do Plano</th>
-                    <th className="pb-3 font-medium text-right whitespace-nowrap">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {[
-                    { name: "Solar Filmes", email: "solar.fotoevideo@gmail.com", status: "Ativo", used: "8486 MB", total: "30 GB", pct: "27.6%", date: "13/05/2027" },
-                    { name: "Aline Assis Fotografia", email: "alineassis.fotografia@outlook.com", status: "Ativo", used: "2003 MB", total: "30 GB", pct: "6.5%", date: "05/06/2026" },
-                    { name: "TATILA CRISTINA PEREIRA ALVES", email: "tatyarz@gmail.com", status: "Inativo", used: "0 MB", total: "0 GB", pct: "0.0%", date: "Sem plano" },
-                    { name: "Davi Jost", email: "davijost401@gmail.com", status: "Inativo", used: "0 MB", total: "0 GB", pct: "0.0%", date: "Sem plano" },
-                    { name: "Henrique Santos", email: "fotografiahenriquesantos@gmail.com", status: "Ativo", used: "0 MB", total: "30 GB", pct: "0.0%", date: "23/10/2026" },
-                    { name: "JUDSON LIMA SANTOS", email: "santosjudson99@gmail.com", status: "Ativo", used: "0 MB", total: "3 GB", pct: "0.0%", date: "23/05/2026" },
-                  ].map((user, i) => (
-                    <tr key={i} className="group hover:bg-gray-50">
-                      <td className="py-4 pr-4">
-                        <div className="font-bold text-gray-900">{user.name}</div>
-                        <div className="text-gray-500 text-xs">{user.email}</div>
-                      </td>
-                      <td className="py-4 pr-4">
-                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${user.status === 'Ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{user.status}</span>
-                      </td>
-                      <td className="py-4 pr-4">
-                        <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
-                          <span>{user.used} de {user.total} usado ({user.pct})</span>
-                        </div>
-                        <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                          <div className="bg-[#10B981] h-full rounded-full" style={{ width: parseFloat(user.pct) + '%' }}></div>
-                        </div>
-                      </td>
-                      <td className="py-4 pr-4 text-gray-500">{user.date}</td>
-                      <td className="py-4 text-right">
-                        <button className="text-gray-400 hover:text-gray-900 p-1">
-                          <MoreVertical className="w-4 h-4 ml-auto" />
-                        </button>
-                      </td>
+            {isLoading ? (
+              <div className="py-16 text-center text-gray-400">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#D05634]" />
+                <p className="text-sm">Carregando usuários e calculando consumo de armazenamento...</p>
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="py-16 text-center text-gray-400">
+                <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                <p className="text-base font-bold text-gray-700">Nenhum usuário encontrado</p>
+                <p className="text-xs text-gray-400 mt-1">Tente ajustar os termos da busca ou filtros.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-100">
+                      <th className="pb-3 font-medium whitespace-nowrap">Usuário</th>
+                      <th className="pb-3 font-medium whitespace-nowrap">Função</th>
+                      <th className="pb-3 font-medium whitespace-nowrap">Plano</th>
+                      <th className="pb-3 font-medium whitespace-nowrap min-w-[220px]">Armazenamento Consumido</th>
+                      <th className="pb-3 font-medium whitespace-nowrap">Status</th>
+                      <th className="pb-3 font-medium text-right whitespace-nowrap">Ações</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredUsers.map((u, i) => (
+                      <tr key={u.uid || i} className="group hover:bg-gray-50/80 transition-colors">
+                        <td className="py-4 pr-4">
+                          <div className="font-bold text-gray-900">{u.displayName || 'Sem nome informado'}</div>
+                          <div className="text-gray-500 text-xs truncate max-w-xs">{u.email}</div>
+                          <div className="text-[10px] text-gray-400 font-mono mt-0.5">{u.collectionsCount || 0} coleções</div>
+                        </td>
+                        <td className="py-4 pr-4">
+                          {u.role === 'admin' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FFF0EB] text-[#D05634] border border-[#D05634]/20">
+                              <Shield className="w-3 h-3" /> Admin
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600">
+                              Fotógrafo
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-4 pr-4">
+                          <div className="font-medium text-gray-800 text-xs">{u.planName || 'Luz'}</div>
+                          <div className="text-[11px] text-gray-400">Limite: {u.storage.formattedLimit}</div>
+                        </td>
+                        <td className="py-4 pr-4">
+                          <div className="flex items-center justify-between text-xs mb-1.5">
+                            <span className="font-medium text-gray-700">
+                              {u.storage.formattedUsed} de {u.storage.formattedLimit}
+                            </span>
+                            <span className={`font-bold ${u.storage.isOverLimit ? 'text-red-500' : 'text-gray-500'}`}>
+                              {u.storage.formattedPercent}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                u.storage.isOverLimit ? 'bg-red-500' : 'bg-[#D05634]'
+                              }`} 
+                              style={{ width: `${Math.min(100, u.storage.percent)}%` }}
+                            ></div>
+                          </div>
+                        </td>
+                        <td className="py-4 pr-4">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            u.status !== 'Inativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {u.status || 'Ativo'}
+                          </span>
+                        </td>
+                        <td className="py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => handleToggleAdminRole(u)}
+                              title={u.role === 'admin' ? "Remover privilégio Admin" : "Tornar Admin"}
+                              className={`p-2 rounded-lg text-xs font-semibold transition-colors ${
+                                u.role === 'admin' 
+                                  ? 'bg-[#FFF0EB] text-[#D05634] hover:bg-[#ffe4dc]' 
+                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              <Shield className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              onClick={() => setEditingUser({ ...u, storageLimitGB: u.storageLimitGB || 30 })}
+                              className="p-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-semibold transition-colors"
+                              title="Editar Usuário / Cota"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'armazenamento' && (
+          <div className="space-y-6 max-w-3xl mx-auto">
+            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
+              <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100">
+                <div className="w-10 h-10 rounded-2xl bg-[#FFF0EB] text-[#D05634] flex items-center justify-center">
+                  <HardDrive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Cloudflare R2 Storage</h3>
+                  <p className="text-xs text-gray-500">Provedor oficial de armazenamento em nuvem e CDN.</p>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">Status do Provedor</div>
+                    <div className="text-sm font-bold text-green-600 flex items-center gap-1.5 mt-1">
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                      Operacional e Pronto
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">Bucket Primário</div>
+                    <div className="text-sm font-mono text-gray-800 mt-1">frameplus-uploads</div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">CDN / Domínio Público</div>
+                    <div className="text-sm font-mono text-[#D05634] mt-1">https://cdn.plus.framepro.click</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">Consumo Total</div>
+                    <div className="text-sm font-bold text-gray-900 mt-1">{formattedPlatformStorage}</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'planos' && (
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm overflow-x-auto">
+          <div className="max-w-4xl mx-auto space-y-8">
+            {/* Form de Configuração de Novas Contas (Trial e Plano Inicial) */}
+            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm text-left">
+              <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100">
+                <div className="w-10 h-10 rounded-2xl bg-[#FFF0EB] text-[#D05634] flex items-center justify-center">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Configuração de Cadastro do Usuário</h3>
+                  <p className="text-xs text-gray-500">Defina o plano e período de testes padrão para novos fotógrafos.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveSettings} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 ml-1">Dias Gratuitos de Teste (Trial)</label>
+                    <input 
+                      type="number"
+                      min="0"
+                      max="365"
+                      value={settings.defaultTrialDays ?? 7}
+                      onChange={e => setSettings({ ...settings, defaultTrialDays: Number(e.target.value) })}
+                      className="w-full px-5 py-4 bg-gray-50 border border-gray-200 focus:border-[#D05634] focus:bg-white rounded-2xl transition-all outline-none text-sm font-medium"
+                      required
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1.5 ml-1">Após estes dias, novos uploads serão bloqueados até a ativação de um plano.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 ml-1">Plano Inicial Padrão</label>
+                    <select
+                      value={settings.defaultInitialPlan ?? "Basic (3 GB)"}
+                      onChange={e => setSettings({ ...settings, defaultInitialPlan: e.target.value })}
+                      className="w-full px-5 py-4 bg-gray-50 border border-gray-200 focus:border-[#D05634] focus:bg-white rounded-2xl transition-all outline-none text-sm font-medium"
+                      required
+                    >
+                      <option value="Basic (3 GB)">Basic (3 GB)</option>
+                      <option value="Crop (15 GB)">Crop (15 GB)</option>
+                      <option value="Luz (30 GB)">Luz (30 GB)</option>
+                      <option value="Shoot (50 GB)">Shoot (50 GB)</option>
+                      <option value="Click (100 GB)">Click (100 GB)</option>
+                      <option value="Plus (500 GB)">Plus (500 GB)</option>
+                      <option value="PRO (2 TB)">PRO (2 TB)</option>
+                      <option value="Founder (4 TB)">Founder (4 TB)</option>
+                    </select>
+                    <p className="text-[11px] text-gray-400 mt-1.5 ml-1">Novo usuário receberá este plano e limite ao criar a conta.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                  {saveSettingsSuccess ? (
+                    <span className="text-emerald-600 text-xs font-bold flex items-center gap-1.5 animate-bounce">
+                      ✓ Configurações salvas com sucesso!
+                    </span>
+                  ) : (
+                    <span></span>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isSavingSettings}
+                    className="bg-[#D05634] hover:bg-[#b84a2b] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-wider px-8 py-4 rounded-2xl transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center gap-2 cursor-pointer"
+                  >
+                    {isSavingSettings ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      'Salvar Configurações'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm overflow-x-auto text-left">
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+                <h3 className="text-lg font-bold text-gray-900">Tabela de Planos e Cotas Disponíveis</h3>
+              </div>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-100">
@@ -7285,95 +8239,123 @@ function AdminView({ setActiveTab: setOuterActiveTab }: { setActiveTab?: (tab: s
                 </tbody>
               </table>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-500 shrink-0">
-                  <Clock className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 font-medium">Trials Ativos</div>
-                  <div className="text-2xl font-bold text-gray-900">0</div>
-                </div>
-              </div>
-              <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-yellow-50 flex items-center justify-center text-yellow-500 shrink-0">
-                  <Users className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 font-medium">Trials Expirados</div>
-                  <div className="text-2xl font-bold text-gray-900">0</div>
-                </div>
-              </div>
-              <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center text-green-500 shrink-0">
-                  <Check className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 font-medium">Convertidos em Pagos</div>
-                  <div className="text-2xl font-bold text-gray-900">0</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-              <h3 className="text-lg font-bold text-gray-900 mb-8">Configurações de Período de Teste</h3>
-              
-              <div className="space-y-6">
-                <div className="flex items-center justify-between pb-6 border-b border-gray-50">
-                  <div className="pr-4">
-                    <div className="text-sm font-bold text-gray-900 mb-1">Habilitar Trial Gratuito</div>
-                    <div className="text-xs text-gray-500">Novos usuários recebem um período de teste automático ao se cadastrarem.</div>
-                  </div>
-                  <div className="w-12 h-6 bg-[#D05634] rounded-full p-1 relative cursor-pointer shrink-0 transition-colors">
-                    <div className="w-4 h-4 bg-white rounded-full absolute right-1"></div>
-                  </div>
-                </div>
-
-                <div className="pb-6 border-b border-gray-50">
-                  <label className="block text-sm font-bold text-gray-900 mb-2">Duração Padrão do Trial (Dias)</label>
-                  <input type="number" defaultValue="14" className="w-full max-w-[12rem] bg-gray-100 border-none rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#D05634]" />
-                  <div className="text-[10px] text-gray-500 mt-2">Quantos dias o usuário terá para testar a plataforma.</div>
-                </div>
-
-                <div className="flex items-center justify-between pb-6 border-b border-gray-50">
-                  <div className="pr-4">
-                    <div className="text-sm font-bold text-gray-900 mb-1">Conversão Automática</div>
-                    <div className="text-xs text-gray-500">Cobrar automaticamente após o fim do trial (requer cartão no cadastro).</div>
-                  </div>
-                  <div className="w-12 h-6 bg-gray-200 rounded-full p-1 relative cursor-pointer shrink-0 transition-colors">
-                    <div className="w-4 h-4 bg-white rounded-full absolute left-1"></div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pb-6 border-b border-gray-50">
-                  <div className="pr-4">
-                    <div className="text-sm font-bold text-gray-900 mb-1">Emails de Lembrete</div>
-                    <div className="text-xs text-gray-500">Enviar email avisando que o trial está acabando.</div>
-                  </div>
-                  <div className="w-12 h-6 bg-[#D05634] rounded-full p-1 relative cursor-pointer shrink-0 transition-colors">
-                    <div className="w-4 h-4 bg-white rounded-full absolute right-1"></div>
-                  </div>
-                </div>
-
-                <div className="pb-6">
-                  <label className="block text-sm font-bold text-gray-900 mb-2">Dias antes de expirar para enviar lembrete</label>
-                  <input type="number" defaultValue="3" className="w-full max-w-[12rem] bg-gray-100 border-none rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#D05634]" />
-                </div>
-
-                <div className="flex flex-col sm:flex-row justify-end gap-4 pt-6 border-t border-gray-50">
-                  <button className="flex items-center justify-center gap-2 text-sm font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg px-6 py-2.5 hover:bg-gray-50 transition-colors">
-                    <RotateCcw className="w-4 h-4" /> Restaurar Padrões
-                  </button>
-                  <button className="flex items-center justify-center gap-2 bg-[#D05634] text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#b84a2b] transition-colors">
-                    <HardDrive className="w-4 h-4" /> Salvar Configurações
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </div>
+
+      {/* Edit User Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-8 border border-gray-100 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Editar Usuário</h3>
+                <p className="text-xs text-gray-500 truncate max-w-xs">{editingUser.email}</p>
+              </div>
+              <button 
+                onClick={() => setEditingUser(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveUser} className="space-y-4 text-left">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Nome de Exibição</label>
+                <input 
+                  type="text"
+                  value={editingUser.displayName || ''}
+                  onChange={e => setEditingUser({ ...editingUser, displayName: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Função no Sistema</label>
+                <select
+                  value={editingUser.role || 'user'}
+                  onChange={e => setEditingUser({ ...editingUser, role: e.target.value, isAdmin: e.target.value === 'admin' })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                >
+                  <option value="user">Fotógrafo / Usuário Padrão</option>
+                  <option value="admin">Administrador (Acesso Total)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Limite de Armazenamento (GB)</label>
+                <input 
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={editingUser.storageLimitGB || 30}
+                  onChange={e => setEditingUser({ ...editingUser, storageLimitGB: Number(e.target.value) })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Nome do Plano</label>
+                <select
+                  value={editingUser.planName || 'Luz (30 GB)'}
+                  onChange={e => {
+                    const name = e.target.value;
+                    let limit = 30;
+                    if (name.includes('3 GB')) limit = 3;
+                    else if (name.includes('15 GB')) limit = 15;
+                    else if (name.includes('30 GB')) limit = 30;
+                    else if (name.includes('50 GB')) limit = 50;
+                    else if (name.includes('100 GB')) limit = 100;
+                    else if (name.includes('500 GB')) limit = 500;
+                    else if (name.includes('2 TB')) limit = 2048;
+                    else if (name.includes('4 TB')) limit = 4096;
+                    setEditingUser({ ...editingUser, planName: name, storageLimitGB: limit });
+                  }}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                >
+                  <option value="Basic (3 GB)">Basic (3 GB)</option>
+                  <option value="Crop (15 GB)">Crop (15 GB)</option>
+                  <option value="Luz (30 GB)">Luz (30 GB)</option>
+                  <option value="Shoot (50 GB)">Shoot (50 GB)</option>
+                  <option value="Click (100 GB)">Click (100 GB)</option>
+                  <option value="Plus (500 GB)">Plus (500 GB)</option>
+                  <option value="PRO (2 TB)">PRO (2 TB)</option>
+                  <option value="Founder (4 TB)">Founder (4 TB)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">Status da Conta</label>
+                <select
+                  value={editingUser.status || 'Ativo'}
+                  onChange={e => setEditingUser({ ...editingUser, status: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                >
+                  <option value="Ativo">Ativo</option>
+                  <option value="Inativo">Inativo</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-gray-100">
+                <button 
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-sm transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-3 bg-[#D05634] hover:bg-[#b84a2b] text-white font-bold rounded-xl text-sm transition-colors shadow-sm"
+                >
+                  Salvar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -7400,7 +8382,7 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
   const [cardPublicKey, setCardPublicKey] = useState(userProfile?.cardPublicKey || '');
   const [cardSecretKey, setCardSecretKey] = useState(userProfile?.cardSecretKey || '');
 
-  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'gateways'>('profile');
+  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'gateways' | 'lightroom'>('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -7457,20 +8439,27 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
           <p className="text-sm text-gray-500 font-medium font-sans">Defina os dados do estúdio e os canais de recebimento dos gateways de pagamento.</p>
         </div>
         
-        <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200/50">
+        <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200/50 overflow-x-auto max-w-full">
           <button 
             type="button"
             onClick={() => setActiveSubTab('profile')}
-            className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeSubTab === 'profile' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${activeSubTab === 'profile' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
           >
             Perfil & Estúdio
           </button>
           <button 
             type="button"
             onClick={() => setActiveSubTab('gateways')}
-            className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeSubTab === 'gateways' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${activeSubTab === 'gateways' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
           >
             Gateways de Pagamento
+          </button>
+          <button 
+            type="button"
+            onClick={() => setActiveSubTab('lightroom')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap ${activeSubTab === 'lightroom' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Adobe Lightroom
           </button>
         </div>
       </div>
@@ -7544,7 +8533,7 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
                 </div>
               </div>
             </div>
-          ) : (
+          ) : activeSubTab === 'gateways' ? (
             <div className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-8 animate-in fade-in duration-200">
               <div className="border-b border-gray-100 pb-4">
                 <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -7660,6 +8649,101 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
                 )}
               </div>
             </div>
+          ) : (
+            <div className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-6 animate-in fade-in duration-200">
+              {/* Lightroom Plugin Section */}
+              <div className="border-b border-gray-100 pb-4 text-left">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Download className="w-5 h-5 text-[#D05634]" /> Integração Adobe Lightroom Classic
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">Exporte suas fotos do Lightroom Classic diretamente para novas ou existentes coleções no Frame+.</p>
+              </div>
+
+              <div className="space-y-6 text-left">
+                {/* Passo 1 */}
+                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <span className="w-6 h-6 rounded-full bg-[#FFF0EB] text-[#D05634] flex items-center justify-center text-xs font-black">1</span>
+                    <h4 className="text-sm font-bold text-gray-900">Baixar o Plugin do Frame+</h4>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed pl-9 font-sans">
+                    Preparamos um arquivo <b>.zip</b> pronto com os scripts de exportação formatados. Baixe-o clicando no botão abaixo, extraia o arquivo e salve a pasta <b>"frameplus.lrplugin"</b> em um local permanente no seu computador (por exemplo, na pasta Documentos).
+                  </p>
+                  <div className="pl-9">
+                    <a 
+                      href="/api/lightroom/download"
+                      className="inline-flex items-center gap-2 bg-[#D05634] hover:bg-[#b84a2b] text-white px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" /> Baixar Plugin Lightroom (.zip)
+                    </a>
+                  </div>
+                </div>
+
+                {/* Passo 2 */}
+                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="w-6 h-6 rounded-full bg-[#FFF0EB] text-[#D05634] flex items-center justify-center text-xs font-black">2</span>
+                    <h4 className="text-sm font-bold text-gray-900">Instalar no Lightroom Classic</h4>
+                  </div>
+                  <ul className="text-xs text-gray-500 list-disc pl-14 space-y-2 leading-relaxed font-sans">
+                    <li>Abra o <b>Adobe Lightroom Classic</b>.</li>
+                    <li>No menu superior, clique em <b>Arquivo &gt; Gerenciador de Plug-ins...</b> (File &gt; Plug-in Manager).</li>
+                    <li>Clique no botão <b>Adicionar</b> (Add) no canto inferior esquerdo.</li>
+                    <li>Navegue até a pasta extraída <b>"frameplus.lrplugin"</b>, selecione-a e confirme.</li>
+                    <li>Pronto! O plugin "Frame+" deverá aparecer com o status de luz verde "Ativo".</li>
+                  </ul>
+                </div>
+
+                {/* Passo 3 */}
+                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <span className="w-6 h-6 rounded-full bg-[#FFF0EB] text-[#D05634] flex items-center justify-center text-xs font-black">3</span>
+                    <h4 className="text-sm font-bold text-gray-900">Configurar Credenciais de Conexão</h4>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed pl-9 font-sans">
+                    Ao exportar fotos, escolha <b>"Frame+ Art Gallery"</b> no menu de seleção do Lightroom (canto superior esquerdo) e insira as credenciais abaixo para autenticar o envio automático:
+                  </p>
+                  
+                  <div className="pl-9 space-y-4 pt-1">
+                    <div className="p-3.5 bg-white border border-gray-200/60 rounded-xl space-y-3 shadow-inner">
+                      <div>
+                        <div className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Endereço do Servidor (Server URL)</div>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs font-mono bg-gray-50 px-2.5 py-1.5 rounded border border-gray-100 flex-1 truncate">{window.location.origin}</code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(window.location.origin);
+                              alert("Endereço do servidor copiado!");
+                            }}
+                            className="text-xs font-bold text-[#D05634] hover:underline px-2.5 py-1.5 bg-[#FFF0EB] rounded-lg border border-[#D05634]/10 cursor-pointer"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Token de Acesso (User Token)</div>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs font-mono bg-gray-50 px-2.5 py-1.5 rounded border border-gray-100 flex-1 truncate">{user?.uid}</code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(user?.uid || "");
+                              alert("Seu Token de acesso foi copiado!");
+                            }}
+                            className="text-xs font-bold text-[#D05634] hover:underline px-2.5 py-1.5 bg-[#FFF0EB] rounded-lg border border-[#D05634]/10 cursor-pointer"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
@@ -7707,7 +8791,38 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('inicio');
   const [collectionsState, setCollectionsState] = useState<any[] | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [user, setUser] = useState<User | null>(auth.currentUser);
+  const [globalTheme, setGlobalTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('frameplus_theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+    } catch {}
+    return 'light';
+  });
+
+  useEffect(() => {
+    try {
+      if (globalTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      localStorage.setItem('frameplus_theme', globalTheme);
+    } catch {}
+  }, [globalTheme]);
+
+  const toggleGlobalTheme = () => {
+    setGlobalTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+  const [user, setUser] = useState<any | null>(() => {
+    try {
+      const saved = localStorage.getItem('frameplus_sso_session');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.uid) return parsed;
+      }
+    } catch {}
+    return auth.currentUser;
+  });
   const [isAuthInited, setIsAuthInited] = useState(false);
   const [isFirestoreAvailable, setIsFirestoreAvailable] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -7724,9 +8839,47 @@ export default function App() {
     }
   });
 
-  const isAdmin = user?.email === 'isabelefelipefotografias@gmail.com' || user?.email === 'felipemachadophotography@gmail.com';
-
   const [userProfile, setUserProfile] = useState<any>(null);
+  const isAdmin = isUserAdmin(user, userProfile);
+  const currentStorageInfo = calculateUserStorage(collectionsState, userProfile);
+
+  const handleAuthSuccess = (authenticatedUser: any) => {
+    if (!authenticatedUser) return;
+    const normalized = {
+      ...authenticatedUser,
+      uid: authenticatedUser.uid || authenticatedUser.id,
+      displayName: authenticatedUser.displayName || authenticatedUser.name || authenticatedUser.email?.split('@')[0] || 'Fotógrafo',
+      photoURL: authenticatedUser.photoURL || authenticatedUser.avatar_url || ''
+    };
+    try {
+      localStorage.setItem('frameplus_sso_session', JSON.stringify(normalized));
+      sessionStorage.removeItem('framepro_explicit_logout');
+    } catch {}
+    const queryParams = new URLSearchParams(window.location.search);
+    if (!queryParams.get('gallery')) {
+      setCollectionsState(null);
+    }
+    setUser(normalized);
+    setUserProfile(normalized);
+    setIsAuthInited(true);
+    setActiveTab('colecoes');
+  };
+
+  const handleLogout = async () => {
+    try {
+      localStorage.removeItem('frameplus_sso_session');
+      sessionStorage.setItem('framepro_explicit_logout', 'true');
+      document.cookie = 'framepro_sso_bridge=; Path=/; Max-Age=0; SameSite=Lax';
+      document.cookie = 'framepro_sso_bridge=; Domain=.framepro.click; Path=/; Max-Age=0; SameSite=Lax';
+    } catch {}
+    try {
+      await signOut(auth);
+    } catch {}
+    setUser(null);
+    setUserProfile(null);
+    setCollectionsState(initialCollections);
+    setActiveTab('inicio');
+  };
 
   useEffect(() => {
     if (!user) {
@@ -7739,12 +8892,20 @@ export default function App() {
         if (response.ok) {
           const data = await response.json();
           setUserProfile(data);
+          // Sync latest profile fields back to local session if SSO
+          try {
+            const saved = localStorage.getItem('frameplus_sso_session');
+            if (saved && data && data.uid) {
+              const merged = { ...JSON.parse(saved), ...data };
+              localStorage.setItem('frameplus_sso_session', JSON.stringify(merged));
+            }
+          } catch {}
         } else {
-          setUserProfile({});
+          setUserProfile(user);
         }
       } catch (err) {
         console.error("Error loading user profile:", err);
-        setUserProfile({});
+        setUserProfile(user);
       }
     };
     loadProfile();
@@ -7755,6 +8916,12 @@ export default function App() {
     try {
       const merged = { ...(userProfile || {}), ...updates, uid: user.uid };
       setUserProfile(merged);
+      try {
+        const saved = localStorage.getItem('frameplus_sso_session');
+        if (saved) {
+          localStorage.setItem('frameplus_sso_session', JSON.stringify({ ...JSON.parse(saved), ...merged }));
+        }
+      } catch {}
       await fetch(`/api/users/${user.uid}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -7784,8 +8951,13 @@ export default function App() {
   }, [quotaExceeded]);
 
   const urlParams = new URLSearchParams(window.location.search);
+  const pathSegment = window.location.pathname.replace(/^\/+/, '').split('/')[0];
   const gallerySlug = urlParams.get('gallery');
-  const isPublicView = !!gallerySlug;
+  const querySiteSlug = urlParams.get('site') || urlParams.get('s');
+  const reservedPaths = ['admin', 'hub', 'dashboard', 'planos', 'colecoes', 'inicio', 'editor', 'login', 'cadastro', 'configuracoes', 'api', 'site'];
+  const pathSiteSlug = (!reservedPaths.includes(pathSegment.toLowerCase()) && pathSegment && !pathSegment.includes('.')) ? pathSegment : '';
+  const siteSlug = querySiteSlug || pathSiteSlug;
+  const isPublicView = !!gallerySlug || !!siteSlug;
 
   // 0. Connection check (Non-blocking warning)
   useEffect(() => {
@@ -7797,11 +8969,183 @@ export default function App() {
     });
   }, []);
 
-  // 1. Auth Listener
+  // 1. Unified FramePro SSO & Auth Listener
   useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
+    let isMounted = true;
+
+    const initUnifiedAuth = async () => {
+      const queryParams = new URLSearchParams(window.location.search);
+      const isPublic = !!queryParams.get('gallery');
+      const ssoTicket = queryParams.get('sso_ticket') || '';
+      const ssoOrigin = queryParams.get('sso_origin') || '';
+
+      const hashStr = window.location.hash ? window.location.hash.replace(/^#/, '') : '';
+      const hashParams = new URLSearchParams(hashStr);
+      const hashAccessToken = hashParams.get('access_token') || '';
+      const hashRefreshToken = hashParams.get('refresh_token') || '';
+
+      // Also check document.cookie for framepro_sso_bridge (.framepro.click)
+      let cookieTicket = '';
+      let cookieAccessToken = '';
+      let cookieRefreshToken = '';
+      try {
+        const match = document.cookie.match(/(?:^|;\s*)framepro_sso_bridge=([^;]*)/);
+        if (match && match[1]) {
+          const decoded = decodeURIComponent(match[1]);
+          try {
+            const parsedBridge = JSON.parse(decoded);
+            cookieTicket = parsedBridge.ticket || '';
+            cookieAccessToken = parsedBridge.access_token || '';
+            cookieRefreshToken = parsedBridge.refresh_token || '';
+          } catch {
+            if (decoded.startsWith('fpsso_')) cookieTicket = decoded;
+          }
+        }
+      } catch {}
+
+      const finalTicket = ssoTicket || cookieTicket;
+      const finalAccessToken = hashAccessToken || cookieAccessToken;
+      const finalRefreshToken = hashRefreshToken || cookieRefreshToken;
+      const hasSsoPayload = Boolean(finalTicket || finalAccessToken);
+
+      if (hasSsoPayload) {
+        try {
+          if (!isPublic) {
+            setCollectionsState(null);
+          }
+
+          let verifiedUser: any = null;
+
+          // Step 1: Verify via FramePlus server proxy (/api/sso/verify)
+          const verifyRes = await fetch('/api/sso/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(finalAccessToken ? { 'Authorization': `Bearer ${finalAccessToken}` } : {})
+            },
+            body: JSON.stringify({
+              ticket: finalTicket,
+              access_token: finalAccessToken,
+              refresh_token: finalRefreshToken,
+              sso_origin: ssoOrigin
+            })
+          });
+
+          if (verifyRes.ok) {
+            const verifyData = await verifyRes.json();
+            if (verifyData && verifyData.valid && verifyData.user) {
+              verifiedUser = verifyData.user;
+            }
+          }
+
+          // Step 2: Direct browser fallback to CRM /api/sso/verify if ticket/token present
+          if (!verifiedUser && (finalTicket || finalAccessToken)) {
+            const crmEndpoint = `${(ssoOrigin || 'https://crm.framepro.click').replace(/\/+$/, '')}/api/sso/verify`;
+            try {
+              const directRes = await fetch(crmEndpoint, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(finalAccessToken ? { 'Authorization': `Bearer ${finalAccessToken}` } : {})
+                },
+                body: JSON.stringify({
+                  ...(finalTicket ? { ticket: finalTicket } : {}),
+                  ...(finalAccessToken ? { access_token: finalAccessToken } : {})
+                })
+              });
+              if (directRes.ok) {
+                const directData = await directRes.json();
+                if (directData && directData.valid && directData.user) {
+                  const crmU = directData.user;
+                  const syncRes = await fetch(`/api/users/${crmU.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      uid: crmU.id,
+                      crmId: crmU.id,
+                      email: crmU.email,
+                      displayName: crmU.name || crmU.email?.split('@')[0],
+                      photoURL: crmU.avatar_url || '',
+                      role: crmU.role || 'user',
+                      crmPlan: crmU.plan || ''
+                    })
+                  });
+                  verifiedUser = syncRes.ok ? await syncRes.json() : {
+                    uid: crmU.id,
+                    crmId: crmU.id,
+                    email: crmU.email,
+                    displayName: crmU.name || crmU.email?.split('@')[0],
+                    photoURL: crmU.avatar_url || '',
+                    role: crmU.role || 'user'
+                  };
+                }
+              }
+            } catch (directErr) {
+              console.warn("Direct browser SSO verify fallback failed:", directErr);
+            }
+          }
+
+          // Clean URL query params (?sso_ticket, ?sso_origin) and #access_token hash
+          try {
+            queryParams.delete('sso_ticket');
+            queryParams.delete('sso_origin');
+            const remainingQuery = queryParams.toString();
+            const cleanUrl = window.location.pathname + (remainingQuery ? `?${remainingQuery}` : '');
+            window.history.replaceState({}, document.title, cleanUrl);
+            document.cookie = 'framepro_sso_bridge=; Path=/; Max-Age=0; SameSite=Lax';
+            document.cookie = 'framepro_sso_bridge=; Domain=.framepro.click; Path=/; Max-Age=0; SameSite=Lax';
+          } catch {}
+
+          if (verifiedUser && isMounted) {
+            handleAuthSuccess(verifiedUser);
+            return;
+          }
+        } catch (ssoErr) {
+          console.error("Error processing FramePro SSO login:", ssoErr);
+        }
+      }
+
+      // Check existing saved FramePro SSO session in localStorage
+      try {
+        const savedSession = localStorage.getItem('frameplus_sso_session');
+        if (savedSession) {
+          const parsedUser = JSON.parse(savedSession);
+          if (parsedUser && parsedUser.uid) {
+            if (isMounted) {
+              if (!isPublic) setCollectionsState(null);
+              setUser(parsedUser);
+              setIsAuthInited(true);
+            }
+            return;
+          }
+        }
+      } catch {}
+    };
+
+    initUnifiedAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      // Do not overwrite an active FramePro SSO session when Firebase auth is null
+      try {
+        const savedSession = localStorage.getItem('frameplus_sso_session');
+        if (savedSession && !u) {
+          const parsedUser = JSON.parse(savedSession);
+          if (parsedUser && parsedUser.uid) {
+            setUser(parsedUser);
+            setIsAuthInited(true);
+            return;
+          }
+        }
+      } catch {}
+
       setUser(u);
       setIsAuthInited(true);
+      
+      const queryParams = new URLSearchParams(window.location.search);
+      const isPublic = !!queryParams.get('gallery');
+      if (!isPublic) {
+        setCollectionsState(null); // Reset collections so guest example collections are not shown for logged-in users
+      }
       if (u) {
         // Skip Firestore sync if quota is exceeded
         if ((window as any).isFirestoreQuotaExceeded || sessionStorage.getItem('firestore_quota_exceeded') === 'true') {
@@ -7824,12 +9168,14 @@ export default function App() {
         } catch (err: any) {
           console.error("Error sync user profile on login:", err);
         }
-
-        // If logged in and on a landing page/auth page, go to collections
-        // Automatic redirection REMOVED to allow user to stay on 'inicio' tab
       }
     });
-  }, []); // Remove activeTab from dependencies to prevent re-triggering on every tab change
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   // 2. Collections Loader
   useEffect(() => {
@@ -7840,8 +9186,13 @@ export default function App() {
         const response = await fetch('/api/collections');
         if (response.ok) {
           const list = await response.json();
-          // Filter to only collections belonging to this user
-          const owned = list.filter((c: any) => c.ownerId?.toLowerCase() === user.uid.toLowerCase());
+          // Match collections belonging to this user by uid or crmId
+          const validIds = new Set(
+            [user.uid, user.crmId, userProfile?.uid, userProfile?.crmId]
+              .filter(Boolean)
+              .map((id: string) => id.toString().toLowerCase().trim())
+          );
+          const owned = list.filter((c: any) => c.ownerId && validIds.has(c.ownerId.toString().toLowerCase().trim()));
           setCollectionsState(owned);
           setIsInitialized(true);
         } else {
@@ -7855,7 +9206,7 @@ export default function App() {
       }
     };
     fetchCollections();
-  }, [user, isAuthInited, isPublicView]);
+  }, [user, userProfile?.crmId, isAuthInited, isPublicView]);
 
   // 3. Plans Loader
   useEffect(() => {
@@ -7930,18 +9281,45 @@ export default function App() {
     const loadPublic = async () => {
       try {
         let finalDocs: any[] = [];
-        const publicStatusList = ['Público', 'Pública', 'Publico', 'Publica'];
+        const publicStatusList = ['Público', 'Pública', 'Publico', 'Publica', 'Publicada', 'Publicado', 'público', 'pública', 'publico', 'publica', 'publicada', 'publicado'];
         
         const response = await fetch('/api/collections');
         if (response.ok) {
           const allCollections = await response.json();
           
-          // 1. Try finding target doc by slug or id
-          let targetDoc = allCollections.find((c: any) => 
-            (c.slug === gallerySlug || c.id?.toString() === gallerySlug?.toString() ||
-             (c.title && c.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') === gallerySlug?.toLowerCase())) &&
-            publicStatusList.includes(c.status)
-          );
+          // 1. Try finding target doc by slug or id with intelligent priority
+          const candidateDocs = allCollections.filter((c: any) => {
+            const matchesId = c.id?.toString() === gallerySlug?.toString();
+            const matchesSlug = c.slug?.toLowerCase() === gallerySlug?.toLowerCase();
+            const titleSlug = (c.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+            const matchesTitle = titleSlug === gallerySlug?.toLowerCase();
+            return matchesId || matchesSlug || matchesTitle;
+          });
+
+          // Sort candidates:
+          // 1. Exact ID match first
+          // 2. Real user collections (has ownerId or starts with col_) over mock demo items
+          // 3. Higher media count
+          // 4. Most recently updated
+          candidateDocs.sort((a: any, b: any) => {
+            if (a.id?.toString() === gallerySlug?.toString()) return -1;
+            if (b.id?.toString() === gallerySlug?.toString()) return 1;
+
+            const aIsReal = Boolean(a.ownerId || a.id?.toString().startsWith('col_'));
+            const bIsReal = Boolean(b.ownerId || b.id?.toString().startsWith('col_'));
+            if (aIsReal && !bIsReal) return -1;
+            if (!aIsReal && bIsReal) return 1;
+
+            const aMediaCount = Array.isArray(a.media) ? a.media.length : 0;
+            const bMediaCount = Array.isArray(b.media) ? b.media.length : 0;
+            if (aMediaCount !== bMediaCount) return bMediaCount - aMediaCount;
+
+            const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+            const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+            return bTime - aTime;
+          });
+
+          const targetDoc = candidateDocs[0];
 
           if (targetDoc) {
             finalDocs.push(targetDoc);
@@ -7949,8 +9327,7 @@ export default function App() {
             // 2. Fetch children if folder
             if (targetDoc.type === 'folder') {
               const children = allCollections.filter((c: any) =>
-                c.parentId?.toString() === targetDoc.id?.toString() &&
-                publicStatusList.includes(c.status)
+                c.parentId?.toString() === targetDoc.id?.toString()
               );
               finalDocs.push(...children);
             }
@@ -8121,31 +9498,32 @@ export default function App() {
       });
     });
 
-    if (user) {
-      try {
-        const currentArr = collectionsState || [];
-        const activeColl = currentArr.find((c: any) => c.id.toString() === idStr);
-        const fullCollObj = {
-          ...(activeColl || {}),
-          ...updates,
-          id: idStr
-        };
-        // Keep primary cover thumbnail if empty and media has items
-        if ('media' in updates && Array.isArray(updates.media) && updates.media.length > 0 && !fullCollObj.image) {
-          fullCollObj.image = updates.media[0];
-        }
-
-        const response = await fetch('/api/collections', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(fullCollObj)
-        });
-        if (!response.ok) {
-          throw new Error("HTTP error saving to API JSON DB");
-        }
-      } catch (err) {
-        console.error("updateCollection server sync failed:", err);
+    try {
+      const currentArr = collectionsState || [];
+      const activeColl = currentArr.find((c: any) => c.id.toString() === idStr);
+      const fullCollObj = {
+        ...(activeColl || {}),
+        ...updates,
+        id: idStr
+      };
+      if (user?.uid && !fullCollObj.ownerId) {
+        fullCollObj.ownerId = user.uid;
       }
+      // Keep primary cover thumbnail if empty and media has items
+      if ('media' in updates && Array.isArray(updates.media) && updates.media.length > 0 && !fullCollObj.image) {
+        fullCollObj.image = updates.media[0];
+      }
+
+      const response = await fetch('/api/collections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fullCollObj)
+      });
+      if (!response.ok) {
+        throw new Error("HTTP error saving to API JSON DB");
+      }
+    } catch (err) {
+      console.error("updateCollection server sync failed:", err);
     }
   };
 
@@ -8186,6 +9564,10 @@ export default function App() {
   }
 
   // Handle routing
+  if (siteSlug) {
+    return <PublicWebsiteView siteSlug={siteSlug} collections={collectionsState || []} />;
+  }
+
   if (gallerySlug) {
     if (gallerySlug.startsWith('folder/')) {
       const folderSlug = gallerySlug.replace('folder/', '');
@@ -8195,14 +9577,34 @@ export default function App() {
         return <PublicFolderView folder={folder} collections={collectionsState.filter(c => c.parentId === folder.id)} />;
       }
     } else {
-      const gallery = collectionsState.find((c: any) => 
+      const candidates = (collectionsState || []).filter((c: any) => 
         c.type !== 'folder' && 
         (
+          c.id?.toString() === gallerySlug.toString() ||
           c.slug?.toLowerCase() === gallerySlug.toLowerCase() || 
-          c.id === gallerySlug ||
           (c.title && c.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') === gallerySlug.toLowerCase())
         )
       );
+
+      candidates.sort((a: any, b: any) => {
+        if (a.id?.toString() === gallerySlug.toString()) return -1;
+        if (b.id?.toString() === gallerySlug.toString()) return 1;
+
+        const aIsReal = Boolean(a.ownerId || a.id?.toString().startsWith('col_'));
+        const bIsReal = Boolean(b.ownerId || b.id?.toString().startsWith('col_'));
+        if (aIsReal && !bIsReal) return -1;
+        if (!aIsReal && bIsReal) return 1;
+
+        const aMediaCount = Array.isArray(a.media) ? a.media.length : 0;
+        const bMediaCount = Array.isArray(b.media) ? b.media.length : 0;
+        if (aMediaCount !== bMediaCount) return bMediaCount - aMediaCount;
+
+        const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return bTime - aTime;
+      });
+
+      const gallery = candidates[0];
       
       if (gallery) {
         const parentFolder = collectionsState.find((c: any) => c.type === 'folder' && c.id === gallery.parentId);
@@ -8239,7 +9641,19 @@ export default function App() {
           <span>⚠️ Atenção: Cota do Firebase esgotada. Suas alterações serão salvas apenas localmente neste navegador até a renovação da cota (diária).</span>
         </div>
       )}
-      {!isPublicView && <Navbar activeTab={activeTab === 'editor' ? 'colecoes' : activeTab} setActiveTab={setActiveTab} user={user} />}
+      {!isPublicView && (
+        <Navbar 
+          activeTab={activeTab === 'editor' ? 'colecoes' : activeTab} 
+          setActiveTab={setActiveTab} 
+          user={user} 
+          userProfile={userProfile}
+          storageInfo={currentStorageInfo}
+          isAdmin={isAdmin}
+          onLogout={handleLogout}
+          globalTheme={globalTheme}
+          onToggleGlobalTheme={toggleGlobalTheme}
+        />
+      )}
       
       <main>
         {!isFirestoreAvailable && isInitialized && (
@@ -8268,13 +9682,15 @@ export default function App() {
           user ? (
             <CollectionsView 
               setActiveTab={setActiveTab}
-              collections={collectionsState}
+              collections={collectionsState || []}
               setCollections={setCollectionsState}
               setCurrentCollectionId={setCurrentCollectionId}
               user={user}
+              userProfile={userProfile}
+              storageInfo={currentStorageInfo}
             />
           ) : (
-            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} />
+            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
           )
         )}
         {activeTab === 'editor' && (
@@ -8282,21 +9698,23 @@ export default function App() {
             <EditorView 
               key={currentCollectionId}
               setActiveTab={setActiveTab}
-              collection={collectionsState.find((c: any) => c.id === currentCollectionId)}
+              collection={(collectionsState || []).find((c: any) => c.id === currentCollectionId)}
               onUpdateCollection={updateCollection}
+              userProfile={userProfile}
+              storageInfo={currentStorageInfo}
             />
           ) : (
-            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} />
+            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
           )
         )}
         {activeTab === 'login' && (
-          <AuthForm mode={authRecoveryMode ? 'recovery' : 'login'} onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} />
+          <AuthForm mode={authRecoveryMode ? 'recovery' : 'login'} onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
         )}
         {activeTab === 'cadastro' && (
-          <AuthForm mode="register" onToggleMode={() => setActiveTab('login')} onToggleRecovery={setAuthRecoveryMode} />
+          <AuthForm mode="register" onToggleMode={() => setActiveTab('login')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
         )}
         {activeTab === 'admin' && (
-          <AdminView setActiveTab={setActiveTab} />
+          <AdminView setActiveTab={setActiveTab} user={user} isAdmin={isAdmin} />
         )}
         {activeTab === 'configuracoes' && (
           user ? (
@@ -8306,7 +9724,21 @@ export default function App() {
               onUpdateProfile={updateUserProfile} 
             />
           ) : (
-            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} />
+            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
+          )
+        )}
+        {activeTab === 'site' && (
+          user ? (
+            <SiteBuilderView 
+              user={user} 
+              userProfile={userProfile} 
+              collections={collectionsState || []} 
+              setActiveTab={setActiveTab} 
+              globalTheme={globalTheme}
+              onToggleGlobalTheme={toggleGlobalTheme}
+            />
+          ) : (
+            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
           )
         )}
       </main>
