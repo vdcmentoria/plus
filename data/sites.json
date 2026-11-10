@@ -1,0 +1,151 @@
+[
+  {
+    "id": "site_obFWpjBfW3gKs381QzUw5eWtjS73",
+    "ownerId": "obFWpjBfW3gKs381QzUw5eWtjS73",
+    "title": "Felipe Machado | Fotografia",
+    "slug": "felipe-machado",
+    "photographerName": "Felipe Machado",
+    "niche": "Casamentos & Ensaios",
+    "theme": "dark",
+    "primaryColor": "#D05634",
+    "headingFont": "Outfit",
+    "bodyFont": "Plus Jakarta Sans",
+    "heroTitle": "FOTOGRAFIA & REGISTROS ATEMPORAIS",
+    "heroSubtitle": "Transformando momentos reais e emoções autênticas em memórias inesquecíveis.",
+    "heroImageUrl": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__3_-1794181047590-30dd62a7.jpg",
+    "bioPhotoUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+    "bioText": "Especialista em capturar emoções autênticas, registros atemporais e momentos inesquecíveis. Transformando cada olhar em memórias eternas.",
+    "geoCity": "São Paulo",
+    "geoRegion": "SP",
+    "customDomain": "",
+    "published": true,
+    "selectedCollectionIds": [
+      "col_1794181019259_78444dc4",
+      "col_1794232043085_c8df0b17"
+    ],
+    "sectionsOrder": [
+      "hero",
+      "portfolio",
+      "about",
+      "pricing",
+      "leads",
+      "blog"
+    ],
+    "sectionsVisibility": {
+      "hero": true,
+      "portfolio": true,
+      "about": true,
+      "pricing": true,
+      "leads": true,
+      "blog": true
+    },
+    "services": [
+      {
+        "id": "1",
+        "name": "Cobertura de Casamento",
+        "price": "R$ 4.500",
+        "description": "Cobertura fotográfica completa do pré-wedding à festa.",
+        "features": [
+          "Até 10h de cobertura",
+          "Galeria digital privada",
+          "Fotos tratadas em alta resolução"
+        ]
+      },
+      {
+        "id": "2",
+        "name": "Ensaio de Casal / Pré-Wedding",
+        "price": "R$ 1.200",
+        "description": "Sessão fotográfica externa com luz natural.",
+        "features": [
+          "2 horas de ensaio",
+          "50 fotos tratadas em alta resolução",
+          "Entrega em 7 dias"
+        ]
+      }
+    ],
+    "heroStyle": "cinematic_video",
+    "updatedAt": "2026-11-09T12:23:40.756Z",
+    "theme_id": "koreo-kinetic",
+    "scrollytellingThemeId": "koreo-kinetic",
+    "scrollytellingConfig": {
+      "smoothScroll": true,
+      "sectionsThemeId": "koreo-kinetic",
+      "sections": [
+        {
+          "id": "sec_koreo_curtain",
+          "type": "koreo_split_curtain",
+          "sourceThemeName": "Koreo Kinetic",
+          "visible": true,
+          "kicker": "WEDDING · DIREÇÃO EDITORIAL",
+          "title": "FOTOGRAFIA & REGISTROS ATEMPORAIS",
+          "subtitle": "Transformando momentos reais e emoções autênticas em memórias inesquecíveis.",
+          "primaryImage": "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__3_-1794181047590-30dd62a7.jpg",
+          "headingFont": "Outfit",
+          "bodyFont": "Plus Jakarta Sans",
+          "bgColor": "#09090B",
+          "textColor": "#FFFFFF",
+          "accentColor": "#D05634",
+          "portalShape": "shutter",
+          "titleSize": "2xl",
+          "overlayOpacity": 45,
+          "visualEffect": "parallax",
+          "showButton": true,
+          "buttonText": "Solicitar Orçamento",
+          "buttonUrl": "whatsapp"
+        },
+        {
+          "id": "sec_galeria_showcase",
+          "type": "interactive_gallery_showcase",
+          "sourceThemeName": "Vitrine Multi-Estilo",
+          "visible": true,
+          "kicker": "PORTFÓLIO & COLEÇÕES",
+          "title": "Histórias & Galerias Publicadas",
+          "subtitle": "Clique em qualquer coleção para abrir a galeria completa",
+          "galleryStyle": "editorial_grid",
+          "galleryAspect": "aspect-[3/4]",
+          "bgColor": "#0A0A0A",
+          "textColor": "#FFFFFF",
+          "accentColor": "#D05634"
+        },
+        {
+          "id": "sec_masonry_atelier",
+          "type": "floating_masonry_3col",
+          "sourceThemeName": "Atelier Minimal",
+          "visible": true,
+          "kicker": "CURADORIA DE DETALHES",
+          "title": "Momentos Espontâneos",
+          "subtitle": "Composição fina e olhar atento aos sentimentos reais",
+          "bgColor": "#0E0E10",
+          "textColor": "#FFFFFF",
+          "accentColor": "#D05634"
+        },
+        {
+          "id": "sec_filmstrip_lumina",
+          "type": "horizontal_filmstrip",
+          "sourceThemeName": "Lumina Editorial",
+          "visible": true,
+          "kicker": "CINEMA CONTÍNUO",
+          "title": "Rolo de Filme 35mm",
+          "subtitle": "Deslize horizontalmente pelas narrativas visuais",
+          "bgColor": "#080808",
+          "textColor": "#FFFFFF",
+          "accentColor": "#D05634"
+        },
+        {
+          "id": "sec_cta_encerramento",
+          "type": "cta_zoom_whatsapp",
+          "sourceThemeName": "Universal",
+          "visible": true,
+          "kicker": "VAMOS CONTAR SUA HISTÓRIA?",
+          "title": "Agende uma Conversa Conosco",
+          "subtitle": "Disponibilidade para casamentos e ensaios exclusivos em todo o Brasil",
+          "buttonText": "Falar no WhatsApp",
+          "buttonUrl": "whatsapp",
+          "bgColor": "#0A0A0A",
+          "textColor": "#FFFFFF",
+          "accentColor": "#D05634"
+        }
+      ]
+    }
+  }
+]

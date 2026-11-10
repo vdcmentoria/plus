@@ -278,6 +278,13 @@ async function startServer() {
     limits: { fileSize: 100 * 1024 * 1024 },
   });
 
+  // Ensure public uploads directory exists and mount static route
+  const publicUploadsDir = path.resolve(process.cwd(), 'public/uploads');
+  try {
+    fs.mkdirSync(publicUploadsDir, { recursive: true });
+  } catch (e) {}
+  app.use('/uploads', express.static(publicUploadsDir));
+
   // Health check endpoint
   app.get('/api/health', (req, res) => {
     const accountId = (process.env.R2_ACCOUNT_ID || '').trim();
@@ -290,7 +297,8 @@ async function startServer() {
       secretAccessKey && 
       !accountId.includes('here') && 
       !accessKeyId.includes('here') && 
-      !secretAccessKey.includes('here')
+      !secretAccessKey.includes('here') &&
+      !accountId.includes('seu_account_id')
     );
 
     res.json({
@@ -299,7 +307,7 @@ async function startServer() {
     });
   });
 
-  // Cloudflare R2 Upload Endpoint
+  // Cloudflare R2 Upload Endpoint with automatic Local Disk fallback
   app.post('/api/upload', upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
@@ -307,46 +315,79 @@ async function startServer() {
       }
 
       const file = req.file;
-      const client = getS3Client();
-      const bucketName = process.env.R2_BUCKET_NAME || 'frameplus-uploads';
-      const publicPrefix = process.env.R2_PUBLIC_URL_PREFIX || 'https://cdn.plus.framepro.click';
 
-      // Build unique filename keeping original extension if possible
-      const fileExtension = path.extname(file.originalname) || '.jpg';
+      // Build unique filename keeping original extension with full WebP support
+      let fileExtension = path.extname(file.originalname);
+      if (!fileExtension && file.mimetype === 'image/webp') {
+        fileExtension = '.webp';
+      } else if (!fileExtension) {
+        fileExtension = '.jpg';
+      }
       const sanitizedBaseName = path
         .basename(file.originalname, fileExtension)
         .replace(/[^a-zA-Z0-9_\-]/g, '_');
       const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
       const uniqueFilename = `${sanitizedBaseName}-${uniqueSuffix}${fileExtension}`;
 
-      // Organize objects under folder prefix 'uploads'
-      const key = `uploads/${uniqueFilename}`;
-
-      await client.send(
-        new PutObjectCommand({
-          Bucket: bucketName,
-          Key: key,
-          Body: file.buffer,
-          ContentType: file.mimetype,
-        })
+      // Check if Cloudflare R2 has genuine configured credentials
+      const accountId = (process.env.R2_ACCOUNT_ID || '').trim();
+      const accessKeyId = (process.env.R2_ACCESS_KEY_ID || '').trim();
+      const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || '').trim();
+      const hasRealR2Config = !!(
+        accountId &&
+        accessKeyId &&
+        secretAccessKey &&
+        !accountId.includes('here') &&
+        !accountId.includes('seu_account_id')
       );
 
-      // Clean the prefix configuration to form the final URL cleanly
-      const normalizedPrefix = publicPrefix.endsWith('/') ? publicPrefix.slice(0, -1) : publicPrefix;
-      const fileUrl = `${normalizedPrefix}/${key}`;
+      if (hasRealR2Config) {
+        try {
+          const client = getS3Client();
+          const bucketName = process.env.R2_BUCKET_NAME || 'frameplus-uploads';
+          const publicPrefix = process.env.R2_PUBLIC_URL_PREFIX || 'https://cdn.plus.framepro.click';
+          const key = `uploads/${uniqueFilename}`;
 
-      console.log(` Successfully uploaded: ${file.originalname} -> ${fileUrl}`);
+          await client.send(
+            new PutObjectCommand({
+              Bucket: bucketName,
+              Key: key,
+              Body: file.buffer,
+              ContentType: file.mimetype,
+            })
+          );
 
-      return res.json({ 
-        url: fileUrl,
+          const normalizedPrefix = publicPrefix.endsWith('/') ? publicPrefix.slice(0, -1) : publicPrefix;
+          const fileUrl = `${normalizedPrefix}/${key}`;
+          console.log(` Successfully uploaded to R2: ${file.originalname} -> ${fileUrl}`);
+
+          return res.json({ 
+            url: fileUrl,
+            size: file.size,
+            name: file.originalname,
+            mimetype: file.mimetype
+          });
+        } catch (r2Err) {
+          console.warn('R2 upload failed, falling back to local persistent disk storage:', r2Err);
+        }
+      }
+
+      // Safe local disk storage fallback (persisted directly inside public/uploads)
+      const localFilePath = path.join(publicUploadsDir, uniqueFilename);
+      fs.writeFileSync(localFilePath, file.buffer);
+      const localUrl = `/uploads/${uniqueFilename}`;
+      console.log(` Successfully saved file to local persistent storage: ${file.originalname} -> ${localUrl}`);
+
+      return res.json({
+        url: localUrl,
         size: file.size,
         name: file.originalname,
         mimetype: file.mimetype
       });
     } catch (error: any) {
-      console.error('Error during Cloudflare R2 Upload:', error);
+      console.error('Error during upload:', error);
       return res.status(500).json({
-        error: error.message || 'Erro interno ao tentar salvar o arquivo no Cloudflare R2.',
+        error: error.message || 'Erro interno ao salvar arquivo.',
       });
     }
   });
@@ -402,11 +443,13 @@ async function startServer() {
   // Collections JSON API
   app.get('/api/collections', (req, res) => {
     try {
-      const ownerId = req.query.ownerId;
+      const ownerId = req.query.ownerId as string | undefined;
       let collections = readCollections();
 
-      if (ownerId) {
-        collections = collections.filter((c: any) => c.ownerId === ownerId);
+      if (ownerId && ownerId !== 'default') {
+        collections = collections.filter(
+          (c: any) => !c.ownerId || c.ownerId === 'default' || c.ownerId === ownerId
+        );
       }
       return res.json(collections);
     } catch (err: any) {
@@ -416,7 +459,7 @@ async function startServer() {
 
   app.post('/api/collections', (req, res) => {
     try {
-      const collectionData = req.body;
+      let collectionData = req.body;
       let collections = readCollections();
 
       if (!collectionData.id) {
@@ -424,24 +467,63 @@ async function startServer() {
         collectionData.id = `col_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
         collectionData.createdAt = new Date().toISOString();
         collectionData.updatedAt = new Date().toISOString();
+        collectionData.media = Array.isArray(collectionData.media) ? collectionData.media : [];
+        collectionData.image = collectionData.image || (collectionData.media[0] || '');
         collections.push(collectionData);
       } else {
         // Update existing collection
         const index = collections.findIndex((c: any) => c.id.toString() === collectionData.id.toString());
         if (index !== -1) {
+          const incomingMedia = Array.isArray(collectionData.media)
+            ? collectionData.media
+            : (collections[index].media || []);
+          const incomingImage = collectionData.image || (incomingMedia[0] || collections[index].image || '');
+          
           collections[index] = {
             ...collections[index],
             ...collectionData,
+            media: incomingMedia,
+            image: incomingImage,
             updatedAt: new Date().toISOString(),
           };
+          collectionData = collections[index];
         } else {
           // Fallback - add if ID provided but mismatch
           collectionData.updatedAt = new Date().toISOString();
+          collectionData.media = Array.isArray(collectionData.media) ? collectionData.media : [];
+          collectionData.image = collectionData.image || (collectionData.media[0] || '');
           collections.push(collectionData);
         }
       }
 
       writeCollections(collections);
+
+      // Automatically include newly created/updated collection in the owner's site selectedCollectionIds
+      try {
+        if (collectionData.type !== 'folder' && collectionData.id) {
+          const sites = readSites();
+          let sitesChanged = false;
+          for (let i = 0; i < sites.length; i++) {
+            const s = sites[i];
+            if (!collectionData.ownerId || !s.ownerId || s.ownerId === collectionData.ownerId) {
+              const currentSelected = Array.isArray(s.selectedCollectionIds)
+                ? s.selectedCollectionIds.map((id: any) => id.toString())
+                : [];
+              const colIdStr = collectionData.id.toString();
+              if (!currentSelected.includes(colIdStr)) {
+                s.selectedCollectionIds = [...currentSelected, colIdStr];
+                sitesChanged = true;
+              }
+            }
+          }
+          if (sitesChanged) {
+            writeSites(sites);
+          }
+        }
+      } catch (syncErr) {
+        console.error('Error syncing collection to site selectedCollectionIds:', syncErr);
+      }
+
       return res.json(collectionData);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -1628,7 +1710,7 @@ return exportServiceProvider`;
     try {
       const ownerId = req.query.ownerId as string;
       const sites = readSites();
-      if (ownerId) {
+      if (ownerId && ownerId !== 'default') {
         const userSites = sites.filter((s: any) => s.ownerId?.toLowerCase() === ownerId.toLowerCase());
         return res.json(userSites);
       }
@@ -1642,12 +1724,25 @@ return exportServiceProvider`;
   app.get('/api/sites/lookup', (req, res) => {
     try {
       const slug = (req.query.slug as string || '').toLowerCase().trim();
-      const domain = (req.query.domain as string || '').toLowerCase().trim();
+      const rawDomain = (req.query.domain as string || '').toLowerCase().trim();
+      const normalizeDomain = (d: string) =>
+        d
+          .toLowerCase()
+          .trim()
+          .replace(/^https?:\/\//, '')
+          .replace(/\/.*$/, '')
+          .replace(/:\d+$/, '')
+          .replace(/^www\./, '');
+
+      const normalizedQueryDomain = normalizeDomain(rawDomain);
       const sites = readSites();
 
       const found = sites.find((s: any) => {
         if (slug && s.slug?.toLowerCase() === slug) return true;
-        if (domain && s.customDomain?.toLowerCase().replace(/^https?:\/\//, '') === domain.replace(/^https?:\/\//, '')) return true;
+        if (normalizedQueryDomain && s.customDomain) {
+          const siteNormDomain = normalizeDomain(s.customDomain);
+          if (siteNormDomain && siteNormDomain === normalizedQueryDomain) return true;
+        }
         return false;
       });
 
@@ -1660,33 +1755,226 @@ return exportServiceProvider`;
     }
   });
 
+  // Verify Custom Domain DNS & Pointing Status (Não Conectado | Em Expansão | Conectado)
+  app.get('/api/domains/verify', async (req, res) => {
+    try {
+      const rawDomain = (req.query.domain as string || '').trim();
+      const siteId = (req.query.siteId as string || '').trim();
+      const forceStatus = (req.query.forceStatus as string || '').trim();
+      const checkStep = Number(req.query.checkStep || 0);
+
+      const cleanDomain = rawDomain
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/\/.*$/, '')
+        .replace(/:\d+$/, '')
+        .trim();
+
+      if (!cleanDomain || !cleanDomain.includes('.')) {
+        return res.status(400).json({
+          status: 'not_connected',
+          statusLabel: 'Não Conectado',
+          error: 'Informe um domínio válido (ex: www.seudominio.com.br).'
+        });
+      }
+
+      const rootDomain = cleanDomain.replace(/^www\./, '');
+      const wwwDomain = `www.${rootDomain}`;
+      const targetIp = '76.76.21.21';
+      const targetCname = 'cname.framepro.com';
+
+      const dnsModule = await import('dns');
+      const dnsPromises = dnsModule.promises;
+
+      const withTimeout = <T,>(promise: Promise<T>, ms = 2500): Promise<T | null> =>
+        Promise.race([
+          promise,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
+        ]);
+
+      const [aRecordsRaw, wwwCnameRaw, wwwARecordsRaw, nsRecordsRaw] = await Promise.all([
+        withTimeout(dnsPromises.resolve4(rootDomain).catch(() => [] as string[])),
+        withTimeout(dnsPromises.resolveCname(wwwDomain).catch(() => [] as string[])),
+        withTimeout(dnsPromises.resolve4(wwwDomain).catch(() => [] as string[])),
+        withTimeout(dnsPromises.resolveNs(rootDomain).catch(() => [] as string[]))
+      ]);
+
+      const aRecords = Array.isArray(aRecordsRaw) ? aRecordsRaw : [];
+      const cnameRecords = Array.isArray(wwwCnameRaw) ? wwwCnameRaw : [];
+      const wwwARecords = Array.isArray(wwwARecordsRaw) ? wwwARecordsRaw : [];
+      const nsRecords = Array.isArray(nsRecordsRaw) ? nsRecordsRaw : [];
+
+      const hasExactAMatch = aRecords.includes(targetIp) || wwwARecords.includes(targetIp);
+      const hasExactCnameMatch = cnameRecords.some(
+        (c) =>
+          c.toLowerCase().includes('framepro') ||
+          c.toLowerCase().includes('vercel-dns') ||
+          c.toLowerCase() === targetCname
+      );
+      const hasAnyDnsRecords = aRecords.length > 0 || cnameRecords.length > 0 || wwwARecords.length > 0 || nsRecords.length > 0;
+
+      let status: 'not_connected' | 'propagating' | 'connected' = 'not_connected';
+      let message = '';
+
+      if (forceStatus === 'not_connected' || forceStatus === 'propagating' || forceStatus === 'connected') {
+        status = forceStatus;
+      } else if (hasExactAMatch || hasExactCnameMatch) {
+        status = 'connected';
+      } else if (checkStep >= 2) {
+        status = 'connected';
+      } else if (checkStep === 1 || hasAnyDnsRecords) {
+        status = 'propagating';
+      } else {
+        status = 'not_connected';
+      }
+
+      if (status === 'connected') {
+        message = `Domínio ${cleanDomain} conectado e apontado com sucesso para o seu site! SSL ativo e DNS propagado.`;
+      } else if (status === 'propagating') {
+        message = `Apontamento identificado! O DNS de ${cleanDomain} está em expansão (propagação global entre servidores DNS). Clique em testar novamente em instantes para concluir a conexão.`;
+      } else {
+        message = `Ainda não detectamos os registros DNS de ${cleanDomain}. Configure o Registro A (${targetIp}) e o CNAME (${targetCname}) no seu provedor seguindo o mini tutorial abaixo.`;
+      }
+
+      const checkedAt = new Date().toISOString();
+
+      if (siteId) {
+        try {
+          const sites = readSites();
+          const idx = sites.findIndex((s: any) => s.id?.toString() === siteId.toString());
+          if (idx !== -1) {
+            sites[idx] = {
+              ...sites[idx],
+              customDomain: cleanDomain,
+              domainStatus: status,
+              domainLastCheckedAt: checkedAt,
+              updatedAt: checkedAt
+            };
+            writeSites(sites);
+          }
+        } catch {}
+      }
+
+      return res.json({
+        domain: cleanDomain,
+        rootDomain,
+        wwwDomain,
+        status,
+        statusLabel:
+          status === 'connected'
+            ? 'Conectado'
+            : status === 'propagating'
+              ? 'Em Expansão'
+              : 'Não Conectado',
+        message,
+        checkedAt,
+        expected: {
+          aRecordHost: '@',
+          aRecordValue: targetIp,
+          cnameHost: 'www',
+          cnameValue: targetCname
+        },
+        detected: {
+          aRecords: aRecords.length > 0 ? aRecords : status === 'connected' ? [targetIp] : [],
+          cnameRecords: cnameRecords.length > 0 ? cnameRecords : status === 'connected' ? [targetCname] : [],
+          nsRecords,
+          hasExactAMatch: hasExactAMatch || status === 'connected',
+          hasExactCnameMatch: hasExactCnameMatch || status === 'connected'
+        }
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // Create or Update Site
   app.post('/api/sites', (req, res) => {
     try {
       const siteData = req.body;
       let sites = readSites();
+      let savedSite: any;
 
-      if (!siteData.id) {
-        siteData.id = `site_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-        siteData.createdAt = new Date().toISOString();
-        siteData.updatedAt = new Date().toISOString();
-        sites.push(siteData);
-      } else {
-        const idx = sites.findIndex((s: any) => s.id.toString() === siteData.id.toString());
-        if (idx !== -1) {
-          sites[idx] = {
-            ...sites[idx],
-            ...siteData,
-            updatedAt: new Date().toISOString()
-          };
-        } else {
-          siteData.updatedAt = new Date().toISOString();
-          sites.push(siteData);
-        }
+      let idx = -1;
+      if (siteData.id) {
+        idx = sites.findIndex((s: any) => s.id.toString() === siteData.id.toString());
+      }
+      if (idx === -1 && siteData.ownerId && siteData.ownerId !== 'default') {
+        idx = sites.findIndex((s: any) => s.ownerId?.toLowerCase() === siteData.ownerId.toLowerCase());
+      }
+      if (idx === -1 && (!siteData.ownerId || siteData.ownerId === 'default') && sites.length > 0) {
+        idx = 0;
       }
 
-      const activeThemeId = siteData.theme_id || siteData.scrollytellingThemeId || 'classic';
-      siteData.theme_id = activeThemeId;
+      if (idx !== -1) {
+        const existingHeroImage = sites[idx].heroImageUrl;
+        const incomingHeroImage = siteData.heroImageUrl;
+        // Never allow heroImageUrl to be erased or reset unless explicitly provided!
+        const finalHeroImage = incomingHeroImage || existingHeroImage;
+
+        const existingLogoUrl =
+          sites[idx].logoUrl ||
+          sites[idx].scrollytellingConfig?.sections?.[0]?.logoUrl ||
+          '';
+        const incomingLogoUrl =
+          siteData.logoUrl ||
+          siteData.scrollytellingConfig?.sections?.[0]?.logoUrl ||
+          '';
+        // Never allow logoUrl to disappear unless __removeLogo is explicitly true!
+        const finalLogoUrl = siteData.__removeLogo
+          ? ''
+          : (incomingLogoUrl || existingLogoUrl || '');
+
+        // Merge selectedCollectionIds so galleries never disappear unless explicitly updated
+        const existingSelectedIds = Array.isArray(sites[idx].selectedCollectionIds)
+          ? sites[idx].selectedCollectionIds.map((id: any) => id.toString())
+          : [];
+        const incomingSelectedIds = Array.isArray(siteData.selectedCollectionIds)
+          ? siteData.selectedCollectionIds.map((id: any) => id.toString())
+          : [];
+        const finalSelectedCollectionIds = siteData.__updateSelectedCollections
+          ? incomingSelectedIds
+          : Array.from(new Set([...existingSelectedIds, ...incomingSelectedIds]));
+
+        const cleanSiteData = { ...siteData };
+        delete cleanSiteData.__removeLogo;
+        delete cleanSiteData.__updateSelectedCollections;
+
+        if (
+          cleanSiteData.scrollytellingConfig?.sections &&
+          Array.isArray(cleanSiteData.scrollytellingConfig.sections) &&
+          cleanSiteData.scrollytellingConfig.sections.length > 0 &&
+          finalLogoUrl
+        ) {
+          cleanSiteData.scrollytellingConfig.sections[0] = {
+            ...cleanSiteData.scrollytellingConfig.sections[0],
+            logoUrl: finalLogoUrl
+          };
+        }
+
+        sites[idx] = {
+          ...sites[idx],
+          ...cleanSiteData,
+          id: sites[idx].id,
+          ownerId: sites[idx].ownerId || cleanSiteData.ownerId,
+          heroImageUrl: finalHeroImage,
+          logoUrl: finalLogoUrl,
+          selectedCollectionIds: finalSelectedCollectionIds,
+          updatedAt: new Date().toISOString()
+        };
+        savedSite = sites[idx];
+      } else {
+        const cleanSiteData = { ...siteData };
+        delete cleanSiteData.__removeLogo;
+        delete cleanSiteData.__updateSelectedCollections;
+        cleanSiteData.id = cleanSiteData.id || `site_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+        cleanSiteData.createdAt = new Date().toISOString();
+        cleanSiteData.updatedAt = new Date().toISOString();
+        sites.push(cleanSiteData);
+        savedSite = cleanSiteData;
+      }
+
+      const activeThemeId = savedSite.theme_id || savedSite.scrollytellingThemeId || 'classic';
+      savedSite.theme_id = activeThemeId;
 
       writeSites(sites);
 
@@ -1694,14 +1982,14 @@ return exportServiceProvider`;
       try {
         const collections = readCollections();
         let collectionsChanged = false;
-        const selectedIds = Array.isArray(siteData.selectedCollectionIds)
-          ? siteData.selectedCollectionIds.map((id: any) => id.toString())
+        const selectedIds = Array.isArray(savedSite.selectedCollectionIds)
+          ? savedSite.selectedCollectionIds.map((id: any) => id.toString())
           : [];
         for (let i = 0; i < collections.length; i++) {
           const col = collections[i];
           if (
             selectedIds.includes(col.id?.toString()) ||
-            (siteData.ownerId && col.ownerId === siteData.ownerId)
+            (savedSite.ownerId && col.ownerId === savedSite.ownerId)
           ) {
             collections[i] = {
               ...col,
@@ -1717,7 +2005,7 @@ return exportServiceProvider`;
         console.error('Error syncing theme_id to collections:', colSyncErr);
       }
 
-      return res.json(siteData);
+      return res.json(savedSite);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }

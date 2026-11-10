@@ -106,6 +106,7 @@ import { auth, db, checkConnection } from './lib/firebase';
 import { LojaSidebar } from './components/LojaSidebar';
 import { PublicWebsiteView } from './components/PublicWebsiteView';
 import { SiteBuilderView } from './components/SiteBuilderView';
+import { OFFICIAL_ASSOCIATION_SEALS, getAssociationSealLogoUrl } from './components/ScrollytellingThemes';
 import { 
   SecureCanvasViewer, 
   useSecurityEnforcer, 
@@ -122,6 +123,7 @@ import {
   isTrialExpired,
   getTrialDaysRemaining
 } from './lib/storageUtils';
+import { convertToWebP } from './utils/imageOptimizer';
 
 enum OperationType {
   CREATE = 'create',
@@ -2035,26 +2037,29 @@ function CollectionsView({
                     {/* Overlaid Association Seals on Gallery Card */}
                     {item.associationSeals && item.associationSeals.length > 0 && (
                       <div className="absolute top-3 left-3 z-30 flex flex-wrap gap-1.5 max-w-[70%] pointer-events-none">
-                        {item.associationSeals.map((seal: any, idx: number) => (
-                          <div 
-                            key={seal.id || idx}
-                            className={`px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md ${
-                              viewMode === 'dense' ? 'text-[8px]' : 'text-[9px]'
-                            }`}
-                          >
-                            {seal.iconUrl ? (
-                              <img src={seal.iconUrl} alt={seal.name} className="w-3 h-3 rounded-full object-contain shrink-0" />
-                            ) : (
-                              <Award className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                            )}
-                            <span className="font-bold truncate max-w-[80px]">{seal.name}</span>
-                            {seal.badgeText && viewMode !== 'dense' && (
-                              <span className="text-[7.5px] uppercase tracking-wider text-[#FF9E80] font-extrabold truncate max-w-[50px]">
-                                · {seal.badgeText}
-                              </span>
-                            )}
-                          </div>
-                        ))}
+                        {item.associationSeals.map((seal: any, idx: number) => {
+                          const resolvedLogo = getAssociationSealLogoUrl(seal.id || seal.name, seal.iconUrl);
+                          return (
+                            <div 
+                              key={seal.id || idx}
+                              className={`px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md ${
+                                viewMode === 'dense' ? 'text-[8px]' : 'text-[9px]'
+                              }`}
+                            >
+                              {resolvedLogo ? (
+                                <img src={resolvedLogo} alt={seal.name} className="w-3.5 h-3.5 rounded object-contain shrink-0" />
+                              ) : (
+                                <Award className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                              )}
+                              <span className="font-bold truncate max-w-[80px]">{seal.name}</span>
+                              {seal.badgeText && viewMode !== 'dense' && (
+                                <span className="text-[7.5px] uppercase tracking-wider text-[#FF9E80] font-extrabold truncate max-w-[50px]">
+                                  · {seal.badgeText}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none" />
@@ -2542,7 +2547,8 @@ function EditorView({
       for (let i = 0; i < totalFiles; i++) {
         setCurrentFileIndex(i);
         setUploadProgress(10);
-        const file = files[i] as File;
+        const rawFile = files[i] as File;
+        const file = await convertToWebP(rawFile, { quality: 0.92 });
 
         // Check remaining quota
         if (storageInfo && (storageInfo.totalBytes + totalBytesAdded + file.size) > (storageInfo.limitMB * 1024 * 1024)) {
@@ -3241,10 +3247,11 @@ function EditorView({
                     accept="image/png,image/jpeg,image/webp,image/svg+xml"
                     className="hidden"
                     onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
+                      const rawFile = e.target.files?.[0];
+                      if (!rawFile) return;
                       try {
                         setIsUploadingSeal(true);
+                        const file = await convertToWebP(rawFile, { quality: 0.92 });
                         const formData = new FormData();
                         formData.append('file', file);
                         const res = await fetch('/api/upload', {
@@ -3360,17 +3367,11 @@ function EditorView({
                   <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
                     Selos Populares (Clique para Alternar)
                   </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { id: 'bride', name: 'Bride Association', badgeText: 'Membro' },
-                      { id: 'inspiration', name: 'Inspiration Photographers', badgeText: 'Awarded' },
-                      { id: 'fearless', name: 'Fearless Photographers', badgeText: 'Member' },
-                      { id: 'ispwp', name: 'ISPWP International', badgeText: 'Member' },
-                      { id: 'mywed', name: 'MyWed', badgeText: 'Award' },
-                      { id: 'fineart', name: 'Fine Art Wedding', badgeText: 'Certificado' }
-                    ].map((preset) => {
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {OFFICIAL_ASSOCIATION_SEALS.map((preset) => {
                       const currentSeals: any[] = collection?.associationSeals || [];
                       const isSelected = currentSeals.some((s: any) => s.name?.toLowerCase() === preset.name.toLowerCase());
+                      const logoUrl = getAssociationSealLogoUrl(preset.id, preset.iconUrl);
 
                       return (
                         <button
@@ -3384,18 +3385,29 @@ function EditorView({
                               nextSeals.push({
                                 id: `preset_${preset.id}_${Date.now()}`,
                                 name: preset.name,
-                                badgeText: preset.badgeText
+                                badgeText: preset.badgeText,
+                                iconUrl: preset.iconUrl || undefined
                               });
                             }
                             onUpdateCollection(collection.id, { associationSeals: nextSeals });
                           }}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                          className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border flex items-center justify-between gap-2 ${
                             isSelected 
                               ? 'bg-[#D05634] text-white border-[#D05634] shadow-sm' 
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-900'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:text-gray-900'
                           }`}
                         >
-                          {isSelected ? '✓ ' : '+ '}{preset.name}
+                          <div className="flex items-center gap-2 min-w-0">
+                            {logoUrl ? (
+                              <img src={logoUrl} alt={preset.name} className="w-7 h-7 rounded-md object-contain bg-black shrink-0" />
+                            ) : (
+                              <Award className="w-4 h-4 text-amber-500 shrink-0" />
+                            )}
+                            <span className="truncate">{preset.name}</span>
+                          </div>
+                          <span className="text-[10px] font-extrabold shrink-0">
+                            {isSelected ? '✓ Ativo' : '+ Usar'}
+                          </span>
                         </button>
                       );
                     })}
@@ -3409,24 +3421,26 @@ function EditorView({
                       Selos Ativos nesta Galeria
                     </span>
                     <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                      {(collection?.associationSeals || []).map((seal: any, idx: number) => (
-                        <div 
-                          key={seal.id || idx}
-                          className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 text-xs"
-                        >
-                          <div className="flex items-center gap-2 truncate pr-2">
-                            {seal.iconUrl ? (
-                              <img src={seal.iconUrl} alt={seal.name} className="w-5 h-5 rounded object-contain bg-white border border-gray-200 shrink-0" />
-                            ) : (
-                              <Award className="w-4 h-4 text-amber-500 shrink-0" />
-                            )}
-                            <div className="truncate">
-                              <span className="font-bold text-gray-900 truncate block">{seal.name}</span>
-                              {seal.badgeText && (
-                                <span className="text-[10px] text-[#D05634] font-semibold block">{seal.badgeText}</span>
+                      {(collection?.associationSeals || []).map((seal: any, idx: number) => {
+                        const resolvedLogo = getAssociationSealLogoUrl(seal.id || seal.name, seal.iconUrl);
+                        return (
+                          <div 
+                            key={seal.id || idx}
+                            className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 text-xs"
+                          >
+                            <div className="flex items-center gap-2 truncate pr-2">
+                              {resolvedLogo ? (
+                                <img src={resolvedLogo} alt={seal.name} className="w-6 h-6 rounded object-contain bg-black border border-gray-200 shrink-0" />
+                              ) : (
+                                <Award className="w-4 h-4 text-amber-500 shrink-0" />
                               )}
+                              <div className="truncate">
+                                <span className="font-bold text-gray-900 truncate block">{seal.name}</span>
+                                {seal.badgeText && (
+                                  <span className="text-[10px] text-[#D05634] font-semibold block">{seal.badgeText}</span>
+                                )}
+                              </div>
                             </div>
-                          </div>
                           <button
                             type="button"
                             onClick={() => {
@@ -3438,8 +3452,9 @@ function EditorView({
                           >
                             <Trash className="w-3.5 h-3.5" />
                           </button>
-                        </div>
-                      ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -3887,22 +3902,25 @@ function EditorView({
                         {/* Overlaid Association Seals on Cover */}
                         {collection?.associationSeals && collection.associationSeals.length > 0 && (
                           <div className="flex flex-wrap items-center justify-center gap-2 mt-4 z-20">
-                            {collection.associationSeals.map((seal: any, idx: number) => (
-                              <div 
-                                key={seal.id || idx}
-                                className="px-3 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/25 text-white flex items-center gap-1.5 shadow-lg"
-                              >
-                                {seal.iconUrl ? (
-                                  <img src={seal.iconUrl} alt={seal.name} className="w-4 h-4 rounded-full object-contain shrink-0" />
-                                ) : (
-                                  <Award className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                )}
-                                <span className="text-[11px] font-bold tracking-tight">{seal.name}</span>
-                                {seal.badgeText && (
-                                  <span className="text-[9px] uppercase tracking-wider text-[#FF9E80] font-extrabold ml-0.5">· {seal.badgeText}</span>
-                                )}
-                              </div>
-                            ))}
+                            {collection.associationSeals.map((seal: any, idx: number) => {
+                              const resolvedLogo = getAssociationSealLogoUrl(seal.id || seal.name, seal.iconUrl);
+                              return (
+                                <div 
+                                  key={seal.id || idx}
+                                  className="px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/25 text-white flex items-center gap-2 shadow-lg"
+                                >
+                                  {resolvedLogo ? (
+                                    <img src={resolvedLogo} alt={seal.name} className="w-5 h-5 rounded object-contain shrink-0" />
+                                  ) : (
+                                    <Award className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                  )}
+                                  <span className="text-[11px] font-bold tracking-tight">{seal.name}</span>
+                                  {seal.badgeText && (
+                                    <span className="text-[9px] uppercase tracking-wider text-[#FF9E80] font-extrabold ml-0.5">· {seal.badgeText}</span>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -7175,22 +7193,25 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
               {/* Overlaid Association Seals on Public Gallery Cover */}
               {collection?.associationSeals && collection.associationSeals.length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-2 mt-6 z-20">
-                  {collection.associationSeals.map((seal: any, idx: number) => (
-                    <div 
-                      key={seal.id || idx}
-                      className="px-4 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/25 text-white flex items-center gap-2 shadow-xl"
-                    >
-                      {seal.iconUrl ? (
-                        <img src={seal.iconUrl} alt={seal.name} className="w-4 h-4 rounded-full object-contain shrink-0" />
-                      ) : (
-                        <Award className="w-4 h-4 text-amber-400 shrink-0" />
-                      )}
-                      <span className="text-xs font-bold tracking-tight">{seal.name}</span>
-                      {seal.badgeText && (
-                        <span className="text-[10px] uppercase tracking-wider text-[#FF9E80] font-extrabold ml-0.5">· {seal.badgeText}</span>
-                      )}
-                    </div>
-                  ))}
+                  {collection.associationSeals.map((seal: any, idx: number) => {
+                    const resolvedLogo = getAssociationSealLogoUrl(seal.id || seal.name, seal.iconUrl);
+                    return (
+                      <div 
+                        key={seal.id || idx}
+                        className="px-4 py-1.5 rounded-full bg-black/45 backdrop-blur-md border border-white/25 text-white flex items-center gap-2 shadow-xl"
+                      >
+                        {resolvedLogo ? (
+                          <img src={resolvedLogo} alt={seal.name} className="w-5 h-5 rounded object-contain shrink-0" />
+                        ) : (
+                          <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                        )}
+                        <span className="text-xs font-bold tracking-tight">{seal.name}</span>
+                        {seal.badgeText && (
+                          <span className="text-[10px] uppercase tracking-wider text-[#FF9E80] font-extrabold ml-0.5">· {seal.badgeText}</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -8482,7 +8503,7 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
                     type="text" 
                     value={studioName}
                     onChange={(e) => setStudioName(e.target.value)}
-                    placeholder="Ex: Isabele & Felipe Fotografia"
+                    placeholder="Ex: Seu Nome ou Nome do Estúdio"
                     className="w-full px-4 py-3.5 bg-gray-50 border border-gray-100 focus:border-[#D05634] focus:bg-white rounded-xl text-xs font-medium outline-none transition-all shadow-inner"
                   />
                 </div>
@@ -8957,7 +8978,18 @@ export default function App() {
   const reservedPaths = ['admin', 'hub', 'dashboard', 'planos', 'colecoes', 'inicio', 'editor', 'login', 'cadastro', 'configuracoes', 'api', 'site'];
   const pathSiteSlug = (!reservedPaths.includes(pathSegment.toLowerCase()) && pathSegment && !pathSegment.includes('.')) ? pathSegment : '';
   const siteSlug = querySiteSlug || pathSiteSlug;
-  const isPublicView = !!gallerySlug || !!siteSlug;
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+  const isPlatformHost =
+    !currentHost ||
+    currentHost === 'localhost' ||
+    currentHost === '127.0.0.1' ||
+    currentHost.endsWith('.run.app') ||
+    currentHost.endsWith('.framepro.click') ||
+    currentHost.endsWith('.framepro.com') ||
+    currentHost.endsWith('.google.com') ||
+    currentHost.endsWith('.googleusercontent.com');
+  const isCustomDomainHost = !isPlatformHost && !gallerySlug && (!pathSegment || !reservedPaths.includes(pathSegment.toLowerCase()));
+  const isPublicView = !!gallerySlug || !!siteSlug || isCustomDomainHost;
 
   // 0. Connection check (Non-blocking warning)
   useEffect(() => {
@@ -9192,7 +9224,12 @@ export default function App() {
               .filter(Boolean)
               .map((id: string) => id.toString().toLowerCase().trim())
           );
-          const owned = list.filter((c: any) => c.ownerId && validIds.has(c.ownerId.toString().toLowerCase().trim()));
+          const owned = list.filter(
+            (c: any) =>
+              !c.ownerId ||
+              c.ownerId === 'default' ||
+              validIds.has(c.ownerId.toString().toLowerCase().trim())
+          );
           setCollectionsState(owned);
           setIsInitialized(true);
         } else {
@@ -9287,49 +9324,54 @@ export default function App() {
         if (response.ok) {
           const allCollections = await response.json();
           
-          // 1. Try finding target doc by slug or id with intelligent priority
-          const candidateDocs = allCollections.filter((c: any) => {
-            const matchesId = c.id?.toString() === gallerySlug?.toString();
-            const matchesSlug = c.slug?.toLowerCase() === gallerySlug?.toLowerCase();
-            const titleSlug = (c.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-            const matchesTitle = titleSlug === gallerySlug?.toLowerCase();
-            return matchesId || matchesSlug || matchesTitle;
-          });
+          if (gallerySlug) {
+            // 1. Single gallery view: Try finding target doc by slug or id with intelligent priority
+            const candidateDocs = allCollections.filter((c: any) => {
+              const matchesId = c.id?.toString() === gallerySlug?.toString();
+              const matchesSlug = c.slug?.toLowerCase() === gallerySlug?.toLowerCase();
+              const titleSlug = (c.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+              const matchesTitle = titleSlug === gallerySlug?.toLowerCase();
+              return matchesId || matchesSlug || matchesTitle;
+            });
 
-          // Sort candidates:
-          // 1. Exact ID match first
-          // 2. Real user collections (has ownerId or starts with col_) over mock demo items
-          // 3. Higher media count
-          // 4. Most recently updated
-          candidateDocs.sort((a: any, b: any) => {
-            if (a.id?.toString() === gallerySlug?.toString()) return -1;
-            if (b.id?.toString() === gallerySlug?.toString()) return 1;
+            candidateDocs.sort((a: any, b: any) => {
+              if (a.id?.toString() === gallerySlug?.toString()) return -1;
+              if (b.id?.toString() === gallerySlug?.toString()) return 1;
 
-            const aIsReal = Boolean(a.ownerId || a.id?.toString().startsWith('col_'));
-            const bIsReal = Boolean(b.ownerId || b.id?.toString().startsWith('col_'));
-            if (aIsReal && !bIsReal) return -1;
-            if (!aIsReal && bIsReal) return 1;
+              const aIsReal = Boolean(a.ownerId || a.id?.toString().startsWith('col_'));
+              const bIsReal = Boolean(b.ownerId || b.id?.toString().startsWith('col_'));
+              if (aIsReal && !bIsReal) return -1;
+              if (!aIsReal && bIsReal) return 1;
 
-            const aMediaCount = Array.isArray(a.media) ? a.media.length : 0;
-            const bMediaCount = Array.isArray(b.media) ? b.media.length : 0;
-            if (aMediaCount !== bMediaCount) return bMediaCount - aMediaCount;
+              const aMediaCount = Array.isArray(a.media) ? a.media.length : 0;
+              const bMediaCount = Array.isArray(b.media) ? b.media.length : 0;
+              if (aMediaCount !== bMediaCount) return bMediaCount - aMediaCount;
 
-            const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
-            const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
-            return bTime - aTime;
-          });
+              const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+              const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+              return bTime - aTime;
+            });
 
-          const targetDoc = candidateDocs[0];
+            const targetDoc = candidateDocs[0];
 
-          if (targetDoc) {
-            finalDocs.push(targetDoc);
-            
-            // 2. Fetch children if folder
-            if (targetDoc.type === 'folder') {
-              const children = allCollections.filter((c: any) =>
-                c.parentId?.toString() === targetDoc.id?.toString()
-              );
-              finalDocs.push(...children);
+            if (targetDoc) {
+              finalDocs.push(targetDoc);
+              
+              if (targetDoc.type === 'folder') {
+                const children = allCollections.filter((c: any) =>
+                  c.parentId?.toString() === targetDoc.id?.toString()
+                );
+                finalDocs.push(...children);
+              }
+            }
+          } else if (siteSlug) {
+            // 2. Full photographer website view: load all published collections
+            finalDocs = allCollections.filter((c: any) => {
+              const isPub = !c.status || publicStatusList.includes(c.status);
+              return isPub;
+            });
+            if (finalDocs.length === 0 && allCollections.length > 0) {
+              finalDocs = allCollections;
             }
           }
         }
@@ -9343,7 +9385,7 @@ export default function App() {
       }
     };
     loadPublic();
-  }, [isPublicView, gallerySlug]);
+  }, [isPublicView, gallerySlug, siteSlug]);
 
   // 4. Persistence / Sync for guest users
   useEffect(() => {
@@ -9564,7 +9606,7 @@ export default function App() {
   }
 
   // Handle routing
-  if (siteSlug) {
+  if (siteSlug || isCustomDomainHost) {
     return <PublicWebsiteView siteSlug={siteSlug} collections={collectionsState || []} />;
   }
 

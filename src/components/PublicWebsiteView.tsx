@@ -30,8 +30,14 @@ import {
 import {
   ScrollytellingThemeId,
   ScrollytellingConfig,
+  ScrollySectionBlock,
   resolveScrollyConfig,
-  ModularScrollytellingComposer
+  ModularScrollytellingComposer,
+  BlockCustomFooterSection,
+  createSectionFromTemplate,
+  getSectionNavLabel,
+  WhatsAppCircularIcon,
+  getAssociationSealLogoUrl
 } from './ScrollytellingThemes';
 
 export interface SiteData {
@@ -50,14 +56,23 @@ export interface SiteData {
   bodyFont?: string;
   customColors?: { bg?: string; text?: string; accent?: string };
   logoUrl?: string;
+  faviconUrl?: string;
   heroStyle?: 'magic_spotlight' | 'split_showcase' | 'minimal_luxury' | 'floating_glass' | 'cinematic_video';
   navStyle?: 'floating_pill' | 'minimal_top' | 'centered_logo' | 'dark_editorial' | 'modern_split';
+  navTransparency?: 'glass' | 'transparent' | 'solid';
   bioPhotoUrl?: string;
   bioText?: string;
   heroTitle: string;
   heroSubtitle: string;
   heroImageUrl: string;
   heroVideoUrl?: string;
+  heroTitleSize?: 'lg' | 'xl' | '2xl' | '3xl' | 'cinema';
+  heroSubtitleSize?: 'sm' | 'base' | 'lg';
+  heroOverlayOpacity?: number;
+  heroButtonText?: string;
+  heroButtonUrl?: string;
+  heroSecondaryButtonText?: string;
+  heroSecondaryButtonUrl?: string;
   customDomain?: string;
   geoCity?: string;
   geoRegion?: string;
@@ -66,6 +81,8 @@ export interface SiteData {
   testimonials?: Array<{ id: string; clientName: string; eventType: string; comment: string; avatarUrl?: string }>;
   faqs?: Array<{ id: string; question: string; answer: string }>;
   socialLinks?: { instagram?: string; facebook?: string; whatsapp?: string; youtube?: string };
+  showFloatingWhatsapp?: boolean;
+  whatsappDefaultMessage?: string;
   published: boolean;
   sectionsOrder?: string[];
   sectionsVisibility?: Record<string, boolean>;
@@ -106,6 +123,99 @@ export interface SiteData {
   canonicalUrl?: string;
   googleSearchConsoleTag?: string;
   autoAltTagsEnabled?: boolean;
+  domainStatus?: 'not_connected' | 'propagating' | 'connected';
+  domainLastCheckedAt?: string;
+  facebookPixelId?: string;
+  // User Saved Custom Themes (Layout-only, isolated from texts/links/media)
+  savedCustomThemes?: SavedLayoutTheme[];
+}
+
+export interface SavedSectionLayout {
+  id?: string;
+  type: ScrollySectionBlock['type'];
+  sourceThemeName?: string;
+  visible: boolean;
+  hideFromNav?: boolean;
+  headingFont?: string;
+  bodyFont?: string;
+  bgColor?: string;
+  textColor?: string;
+  titleColor?: string;
+  accentColor?: string;
+  buttonBgColor?: string;
+  buttonTextColor?: string;
+  galleryStyle?: ScrollySectionBlock['galleryStyle'];
+  galleryAspect?: ScrollySectionBlock['galleryAspect'];
+  portalShape?: ScrollySectionBlock['portalShape'];
+  testimonialStyle?: ScrollySectionBlock['testimonialStyle'];
+  instagramStyle?: ScrollySectionBlock['instagramStyle'];
+  footerStyle?: ScrollySectionBlock['footerStyle'];
+  footerEffect?: ScrollySectionBlock['footerEffect'];
+  footerPaddingSize?: ScrollySectionBlock['footerPaddingSize'];
+  footerLayout?: ScrollySectionBlock['footerLayout'];
+  footerTextAlign?: ScrollySectionBlock['footerTextAlign'];
+  footerSocialPosition?: ScrollySectionBlock['footerSocialPosition'];
+  footerBottomLayout?: ScrollySectionBlock['footerBottomLayout'];
+  showFooterKicker?: boolean;
+  showFooterTitle?: boolean;
+  showFooterSubtitle?: boolean;
+  showFooterCopyright?: boolean;
+  showFooterCredits?: boolean;
+  showBackToTop?: boolean;
+  showFooterSocials?: boolean;
+  showAssociationSeals?: boolean;
+  titleSize?: ScrollySectionBlock['titleSize'];
+  subtitleSize?: ScrollySectionBlock['subtitleSize'];
+  overlayOpacity?: number;
+  visualEffect?: ScrollySectionBlock['visualEffect'];
+  navStyle?: ScrollySectionBlock['navStyle'];
+  navTransparency?: ScrollySectionBlock['navTransparency'];
+  showButton?: boolean;
+  curtainSpeed?: ScrollySectionBlock['curtainSpeed'];
+  marqueeOpacity?: number;
+  doorBorderColor?: string;
+  shutterBlades?: ScrollySectionBlock['shutterBlades'];
+  initialAperture?: ScrollySectionBlock['initialAperture'];
+  showFStopMarks?: boolean;
+  shutterRotationDeg?: number;
+  initialMaskWidth?: number;
+  maskBorderRadius?: ScrollySectionBlock['maskBorderRadius'];
+  perspectiveTiltDeg?: number;
+  perspectiveDepth?: number;
+  darkroomBath?: ScrollySectionBlock['darkroomBath'];
+  darkroomRevealThreshold?: number;
+  chemicalGrainIntensity?: number;
+  bentoInitialZoom?: number;
+  bentoGridGap?: ScrollySectionBlock['bentoGridGap'];
+  storyTextSide?: ScrollySectionBlock['storyTextSide'];
+  storyParallaxSpeed?: ScrollySectionBlock['storyParallaxSpeed'];
+  stackSpacingPx?: number;
+  stackScaleStep?: number;
+  wordGlowColor?: string;
+  showFloatingSidePhotos?: boolean;
+  sliderHandleIcon?: ScrollySectionBlock['sliderHandleIcon'];
+}
+
+export interface SavedLayoutTheme {
+  id: string;
+  name: string;
+  createdAt: string;
+  baseThemeId?: ScrollytellingThemeId;
+  theme?: SiteData['theme'];
+  primaryColor?: string;
+  headingFont?: string;
+  bodyFont?: string;
+  customColors?: { bg?: string; text?: string; accent?: string };
+  navStyle?: SiteData['navStyle'];
+  navTransparency?: SiteData['navTransparency'];
+  galleryShape?: SiteData['galleryShape'];
+  galleryColumns?: string;
+  galleryTextPosition?: SiteData['galleryTextPosition'];
+  gallerySpacing?: SiteData['gallerySpacing'];
+  galleryCardRadius?: SiteData['galleryCardRadius'];
+  galleryHoverEffect?: SiteData['galleryHoverEffect'];
+  footerDeleted?: boolean;
+  sectionsLayout: SavedSectionLayout[];
 }
 
 export interface BlogPost {
@@ -176,6 +286,58 @@ export function PublicWebsiteView({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [blogPosts, setBlogPosts] = useState<BlogPost[]>([]);
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
+  const [internalCollections, setInternalCollections] = useState<any[]>(collections || []);
+
+  // Apply custom favicon to browser tab when available
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const activeFavicon =
+      site?.faviconUrl ||
+      initialSite?.faviconUrl ||
+      (typeof window !== 'undefined' ? localStorage.getItem('frame_saved_favicon_url') || '' : '');
+    if (!activeFavicon) return;
+
+    let iconLink = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
+    if (!iconLink) {
+      iconLink = document.createElement('link');
+      iconLink.rel = 'icon';
+      document.head.appendChild(iconLink);
+    }
+    iconLink.href = activeFavicon;
+  }, [site?.faviconUrl, initialSite?.faviconUrl]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (collections && collections.length > 0) {
+      setInternalCollections(collections);
+    }
+    const fetchCollections = async () => {
+      try {
+        const res = await fetch('/api/collections');
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setInternalCollections((prev) => {
+              const map = new Map<string, any>();
+              for (const item of prev || []) {
+                if (item?.id) map.set(item.id.toString(), item);
+              }
+              for (const item of data) {
+                if (item?.id) map.set(item.id.toString(), item);
+              }
+              return Array.from(map.values());
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching collections for PublicWebsiteView:', err);
+      }
+    };
+    fetchCollections();
+    return () => {
+      isMounted = false;
+    };
+  }, [collections]);
   
   // Hero Image Re-framing State
   const [isAdjustingHeroCrop, setIsAdjustingHeroCrop] = useState(false);
@@ -322,6 +484,40 @@ export function PublicWebsiteView({
     }
   }, [site?.metaTitle, site?.title, site?.geoCity, site?.geoState, site?.geoAddress, site?.geoNeighborhood, site?.schemaOrgEnabled, site?.ogImageUrl, site?.heroImageUrl, site?.photographerName, site?.heroSubtitle]);
 
+  // Meta Pixel (Facebook Pixel) injection and PageView tracking
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const pixelId = (site?.facebookPixelId || '').trim();
+    if (!pixelId) return;
+
+    if ((window as any).__fb_pixel_loaded === pixelId) return;
+
+    /* eslint-disable */
+    (function (f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
+      if (f.fbq) return;
+      n = f.fbq = function () {
+        n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+      };
+      if (!f._fbq) f._fbq = n;
+      n.push = n;
+      n.loaded = !0;
+      n.version = '2.0';
+      n.queue = [];
+      t = b.createElement(e);
+      t.async = !0;
+      t.src = v;
+      s = b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t, s);
+    })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+    /* eslint-enable */
+
+    if ((window as any).fbq) {
+      (window as any).fbq('init', pixelId);
+      (window as any).fbq('track', 'PageView');
+      (window as any).__fb_pixel_loaded = pixelId;
+    }
+  }, [site?.facebookPixelId]);
+
   useEffect(() => {
     if (!site?.id) return;
     const fetchBlogs = async () => {
@@ -364,11 +560,22 @@ export function PublicWebsiteView({
     );
   }
 
-  const portfolioGalleries = collections.filter(c => 
-    site.selectedCollectionIds && site.selectedCollectionIds.length > 0
-      ? site.selectedCollectionIds.includes(c.id.toString())
-      : c.status === 'Público' || c.status === 'Pública'
+  const activeCollectionsList = (internalCollections.length > 0 ? internalCollections : collections).filter(
+    (c: any) =>
+      c &&
+      c.type !== 'folder' &&
+      (!site.ownerId || !c.ownerId || c.ownerId === 'default' || c.ownerId === site.ownerId)
   );
+  const filteredGalleries = activeCollectionsList.filter(
+    (c: any) => c.status !== 'Privado' && c.status !== 'Privada' && c.status !== 'Oculto'
+  );
+  const selectedFiltered =
+    site.selectedCollectionIds && site.selectedCollectionIds.length > 0
+      ? filteredGalleries.filter((c: any) => site.selectedCollectionIds?.includes(String(c.id)))
+      : filteredGalleries;
+  const portfolioGalleries = selectedFiltered.length > 0
+    ? selectedFiltered
+    : (filteredGalleries.length > 0 ? filteredGalleries : activeCollectionsList);
 
   const themeClasses = {
     dark: 'bg-zinc-950 text-zinc-100',
@@ -402,6 +609,12 @@ export function PublicWebsiteView({
       });
       if (response.ok) {
         setFormSubmitted(true);
+        if (typeof window !== 'undefined' && (window as any).fbq) {
+          (window as any).fbq('track', 'Lead', {
+            content_name: formEventType || 'GorilaForms Lead',
+            currency: 'BRL'
+          });
+        }
       }
     } catch (err) {
       console.error("Error submitting lead form:", err);
@@ -415,21 +628,60 @@ export function PublicWebsiteView({
   // Selected Header Nav Style
   const navStyle = site.navStyle || 'floating_pill';
 
+  const effectiveLogoUrl =
+    site.logoUrl ||
+    site.scrollytellingConfig?.sections?.[0]?.logoUrl ||
+    (typeof window !== 'undefined' ? localStorage.getItem('frame_saved_logo_url') || '' : '');
+
   // Brand Logo or Name Renderer
   const renderBrand = () => (
-    <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setActiveNav('home'); setSelectedPost(null); }}>
-      {site.logoUrl ? (
-        <img src={site.logoUrl} alt={site.photographerName} className="h-10 w-auto object-contain transition-transform hover:scale-105" />
+    <div
+      className="flex items-center gap-2.5 cursor-pointer"
+      onClick={(e) => {
+        setActiveNav('home');
+        setSelectedPost(null);
+        if (onSelectSection) {
+          e.stopPropagation();
+          const heroSecId = site.scrollytellingConfig?.sections?.[0]?.id || 'hero';
+          onSelectSection(heroSecId);
+        }
+      }}
+    >
+      {effectiveLogoUrl ? (
+        <img src={effectiveLogoUrl} alt={site.photographerName || 'Logo'} className="h-10 w-auto object-contain transition-transform hover:scale-105" />
       ) : (
         <div className="flex items-center gap-2">
           <Camera className="w-6 h-6" style={{ color: accentColor }} />
           <span className="font-black text-base md:text-lg tracking-wider uppercase text-white" style={headingStyle}>
-            {site.photographerName || site.title}
+            {site.photographerName || site.title || 'Seu Nome'}
           </span>
         </div>
       )}
     </div>
   );
+
+  const resolvedScrolly = resolveScrollyConfig(site);
+  const allScrollySections = resolvedScrolly.sections || [];
+  const navMenuSections = allScrollySections
+    .map((sec, idx) => ({ sec, idx, label: getSectionNavLabel(sec, idx) }))
+    .filter((item) => item.sec.visible !== false && !item.sec.hideFromNav);
+
+  const handleNavSectionClick = (secId: string, idx: number) => {
+    setActiveNav('home');
+    setSelectedPost(null);
+    setIsMobileMenuOpen(false);
+    if (onSelectSection) {
+      onSelectSection(secId);
+    }
+    setTimeout(() => {
+      const el = document.getElementById(`scrolly-sec-${secId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (idx === 0) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 30);
+  };
 
   return (
     <div className={`min-h-screen selection:bg-[#D05634]/20 selection:text-[#D05634] ${themeClasses}`} style={bodyStyle}>
@@ -439,14 +691,25 @@ export function PublicWebsiteView({
       {/* NAV STYLE 1: Magic UI Floating Glass Header */}
       {navStyle === 'floating_pill' && (
         <div className="sticky top-4 z-50 px-4 pt-2">
-          <header className="max-w-5xl mx-auto backdrop-blur-2xl bg-black/80 border border-white/15 shadow-2xl rounded-2xl px-6 py-3 flex items-center justify-between transition-all">
+          <header className={`max-w-5xl mx-auto rounded-2xl px-6 py-3 flex items-center justify-between transition-all ${
+            site.navTransparency === 'transparent'
+              ? 'bg-black/35 backdrop-blur-sm border border-white/10 shadow-none'
+              : site.navTransparency === 'solid'
+                ? 'bg-zinc-950 border border-zinc-800 shadow-2xl'
+                : 'backdrop-blur-2xl bg-black/80 border border-white/15 shadow-2xl'
+          }`}>
             {renderBrand()}
 
             <nav className="hidden md:flex items-center gap-7 text-xs font-semibold uppercase tracking-widest text-zinc-300">
-              <button onClick={() => { setActiveNav('home'); setSelectedPost(null); }} className={`hover:text-white transition-colors ${activeNav === 'home' ? 'text-white font-bold' : ''}`}>Início</button>
-              <button onClick={() => { setActiveNav('portfolio'); setSelectedPost(null); }} className={`hover:text-white transition-colors ${activeNav === 'portfolio' ? 'text-white font-bold' : ''}`}>Portfólio</button>
-              {portfolioGalleries.length > 0 && <button onClick={() => { setActiveNav('galerias'); setSelectedPost(null); }} className={`hover:text-white transition-colors ${activeNav === 'galerias' ? 'text-white font-bold' : ''}`}>Galerias</button>}
-              <button onClick={() => { setActiveNav('sobre'); setSelectedPost(null); }} className={`hover:text-white transition-colors ${activeNav === 'sobre' ? 'text-white font-bold' : ''}`}>Sobre</button>
+              {navMenuSections.map(({ sec, idx, label }) => (
+                <button
+                  key={sec.id}
+                  onClick={() => handleNavSectionClick(sec.id, idx)}
+                  className={`hover:text-white transition-colors ${activeSection === sec.id ? 'text-white font-bold' : ''}`}
+                >
+                  {label}
+                </button>
+              ))}
               {blogPosts.length > 0 && <button onClick={() => { setActiveNav('blog'); setSelectedPost(null); }} className={`hover:text-white transition-colors ${activeNav === 'blog' ? 'text-white font-bold' : ''}`}>Blog</button>}
             </nav>
 
@@ -457,7 +720,7 @@ export function PublicWebsiteView({
                 style={{ backgroundColor: accentColor }}
               >
                 <Send className="w-3.5 h-3.5" />
-                Orçamento
+                {site.customNavLabels?.cta || 'Orçamento'}
               </button>
             </div>
 
@@ -473,10 +736,14 @@ export function PublicWebsiteView({
         <header className="sticky top-0 z-50 backdrop-blur-md bg-black/80 border-b border-white/10 px-8 py-4 flex items-center justify-between">
           {renderBrand()}
           <nav className="hidden md:flex items-center gap-8 text-xs font-semibold uppercase tracking-widest text-zinc-400">
-            <button onClick={() => { setActiveNav('home'); setSelectedPost(null); }} className="hover:text-white">Início</button>
-            <button onClick={() => { setActiveNav('portfolio'); setSelectedPost(null); }} className="hover:text-white">Portfólio</button>
-            <button onClick={() => { setActiveNav('sobre'); setSelectedPost(null); }} className="hover:text-white">Sobre</button>
-            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="hover:text-white" style={{ color: accentColor }}>Contato</button>
+            {navMenuSections.map(({ sec, idx, label }) => (
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+                {label}
+              </button>
+            ))}
+            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="hover:text-white" style={{ color: accentColor }}>
+              {site.customNavLabels?.cta || 'Contato'}
+            </button>
           </nav>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
             <Menu className="w-6 h-6" />
@@ -488,13 +755,22 @@ export function PublicWebsiteView({
       {navStyle === 'centered_logo' && (
         <header className="sticky top-0 z-50 backdrop-blur-lg bg-zinc-950/90 border-b border-white/10 px-8 py-4 flex items-center justify-between">
           <div className="hidden md:flex items-center gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
-            <button onClick={() => { setActiveNav('home'); setSelectedPost(null); }} className="hover:text-white">Início</button>
-            <button onClick={() => { setActiveNav('portfolio'); setSelectedPost(null); }} className="hover:text-white">Portfólio</button>
+            {navMenuSections.slice(0, Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+                {label}
+              </button>
+            ))}
           </div>
           <div>{renderBrand()}</div>
           <div className="hidden md:flex items-center gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
-            <button onClick={() => { setActiveNav('sobre'); setSelectedPost(null); }} className="hover:text-white">Sobre</button>
-            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="px-4 py-2 rounded-lg border text-white font-bold" style={{ borderColor: accentColor }}>Contato</button>
+            {navMenuSections.slice(Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+                {label}
+              </button>
+            ))}
+            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="px-4 py-2 rounded-lg border text-white font-bold" style={{ borderColor: accentColor }}>
+              {site.customNavLabels?.cta || 'Contato'}
+            </button>
           </div>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
             <Menu className="w-6 h-6" />
@@ -507,10 +783,14 @@ export function PublicWebsiteView({
         <header className="sticky top-0 z-50 bg-black border-b border-zinc-800 px-8 py-5 flex items-center justify-between">
           {renderBrand()}
           <nav className="hidden md:flex items-center gap-10 text-xs font-black uppercase tracking-widest text-zinc-400">
-            <button onClick={() => { setActiveNav('home'); setSelectedPost(null); }} className="hover:text-amber-400">Início</button>
-            <button onClick={() => { setActiveNav('portfolio'); setSelectedPost(null); }} className="hover:text-amber-400">Trabalhos</button>
-            <button onClick={() => { setActiveNav('sobre'); setSelectedPost(null); }} className="hover:text-amber-400">Estúdio</button>
-            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="text-amber-400 underline decoration-2 underline-offset-8 font-black">Agendar</button>
+            {navMenuSections.map(({ sec, idx, label }) => (
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-amber-400">
+                {label}
+              </button>
+            ))}
+            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="text-amber-400 underline decoration-2 underline-offset-8 font-black">
+              {site.customNavLabels?.cta || 'Agendar'}
+            </button>
           </nav>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
             <Menu className="w-6 h-6" />
@@ -522,19 +802,20 @@ export function PublicWebsiteView({
       {navStyle === 'modern_split' && (
         <header className="sticky top-0 z-50 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-6 py-3.5 flex items-center justify-between">
           {renderBrand()}
-          {site.geoCity && (
-            <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-800 text-[11px] font-bold text-zinc-300">
-              <MapPin className="w-3.5 h-3.5 text-[#D05634]" />
-              {site.geoCity}, {site.geoRegion || 'BR'}
-            </div>
-          )}
+          <nav className="hidden md:flex items-center gap-6 text-xs font-bold uppercase tracking-widest text-zinc-300">
+            {navMenuSections.map(({ sec, idx, label }) => (
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+                {label}
+              </button>
+            ))}
+          </nav>
           <button 
             onClick={() => { setActiveNav('contato'); setSelectedPost(null); }}
             className="px-5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-md"
             style={{ backgroundColor: accentColor }}
           >
             <Send className="w-3.5 h-3.5" />
-            WhatsApp / Contato
+            {site.customNavLabels?.cta || 'WhatsApp / Contato'}
           </button>
         </header>
       )}
@@ -542,10 +823,14 @@ export function PublicWebsiteView({
       {/* Mobile Drawer Menu */}
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-40 bg-black/95 backdrop-blur-xl flex flex-col p-8 pt-24 gap-6 text-sm font-bold uppercase tracking-widest text-white">
-          <button onClick={() => { setActiveNav('home'); setIsMobileMenuOpen(false); }}>Início</button>
-          <button onClick={() => { setActiveNav('portfolio'); setIsMobileMenuOpen(false); }}>Portfólio</button>
-          <button onClick={() => { setActiveNav('sobre'); setIsMobileMenuOpen(false); }}>Sobre</button>
-          <button onClick={() => { setActiveNav('contato'); setIsMobileMenuOpen(false); }} style={{ color: accentColor }}>Solicitar Orçamento</button>
+          {navMenuSections.map(({ sec, idx, label }) => (
+            <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)}>
+              {label}
+            </button>
+          ))}
+          <button onClick={() => { setActiveNav('contato'); setIsMobileMenuOpen(false); }} style={{ color: accentColor }}>
+            {site.customNavLabels?.cta || 'Solicitar Orçamento'}
+          </button>
         </div>
       )}
 
@@ -576,7 +861,7 @@ export function PublicWebsiteView({
             />
           </article>
         ) : activeNav === 'home' && (site.scrollytellingThemeId || site.theme_id) && (site.scrollytellingThemeId || site.theme_id) !== 'classic' ? (
-          <div onClick={() => onSelectSection && onSelectSection('temas')}>
+          <div>
             <ModularScrollytellingComposer
               site={site}
               config={resolveScrollyConfig(site)}
@@ -586,6 +871,8 @@ export function PublicWebsiteView({
                 window.location.href = `/?gallery=${encodeURIComponent(gSlug)}`;
               }}
               onNavigateSection={(sec) => setActiveNav(sec as any)}
+              onSelectSection={isEditorPreview ? onSelectSection : undefined}
+              selectedSectionId={activeSection}
             />
           </div>
         ) : (
@@ -843,10 +1130,10 @@ export function PublicWebsiteView({
                       <img 
                         src={site.heroImageUrl} 
                         alt={site.title} 
-                        className={`w-full h-full object-cover filter brightness-40 ${site.heroVisualEffect === 'ken_burns' ? 'animate-ken-burns' : ''}`}
+                        className={`w-full h-full object-cover filter brightness-75 contrast-105 ${site.heroVisualEffect === 'ken_burns' ? 'animate-ken-burns' : ''}`}
                         style={{ objectPosition: `center ${isAdjustingHeroCrop ? tempYOffset : (site.heroImageYOffset ?? 50)}%` }}
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/25" />
                     </div>
                     <div className="relative z-10 max-w-4xl space-y-6">
                       <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center mx-auto text-white shadow-2xl cursor-pointer hover:scale-105 transition-transform">
@@ -915,24 +1202,27 @@ export function PublicWebsiteView({
                               {/* Overlaid Association Seals on Gallery Card */}
                               {col.associationSeals && col.associationSeals.length > 0 && (
                                 <div className="absolute top-3 left-3 z-30 flex flex-wrap gap-1.5 max-w-[70%] pointer-events-none">
-                                  {col.associationSeals.map((seal: any, sIdx: number) => (
-                                    <div 
-                                      key={seal.id || sIdx}
-                                      className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center gap-1.5 shadow-lg text-[9px] font-bold"
-                                    >
-                                      {seal.iconUrl ? (
-                                        <img src={seal.iconUrl} alt={seal.name} className="w-3.5 h-3.5 rounded-full object-contain shrink-0" />
-                                      ) : (
-                                        <Award className="w-3 h-3 text-amber-400 shrink-0" />
-                                      )}
-                                      <span className="truncate max-w-[90px]">{seal.name}</span>
-                                      {seal.badgeText && (
-                                        <span className="text-[7.5px] uppercase tracking-wider text-[#FF9E80] font-extrabold truncate max-w-[60px]">
-                                          · {seal.badgeText}
-                                        </span>
-                                      )}
-                                    </div>
-                                  ))}
+                                  {col.associationSeals.map((seal: any, sIdx: number) => {
+                                    const resolvedLogo = getAssociationSealLogoUrl(seal.id || seal.name, seal.iconUrl);
+                                    return (
+                                      <div 
+                                        key={seal.id || sIdx}
+                                        className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center gap-1.5 shadow-lg text-[9px] font-bold"
+                                      >
+                                        {resolvedLogo ? (
+                                          <img src={resolvedLogo} alt={seal.name} className="w-4 h-4 rounded object-contain shrink-0" />
+                                        ) : (
+                                          <Award className="w-3 h-3 text-amber-400 shrink-0" />
+                                        )}
+                                        <span className="truncate max-w-[90px]">{seal.name}</span>
+                                        {seal.badgeText && (
+                                          <span className="text-[7.5px] uppercase tracking-wider text-[#FF9E80] font-extrabold truncate max-w-[60px]">
+                                            · {seal.badgeText}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
 
@@ -1054,17 +1344,24 @@ export function PublicWebsiteView({
                       {site.associationSeals && site.associationSeals.length > 0 && (
                         <div className="pt-2 space-y-2">
                           <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 block">Associações & Membrorias</span>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {site.associationSeals.map((seal) => (
-                              <div 
-                                key={seal.id}
-                                className="px-3.5 py-1.5 rounded-xl bg-zinc-900/90 border border-white/10 text-xs font-bold text-zinc-200 flex items-center gap-2 shadow-sm hover:border-[#D05634]/60 transition-colors"
-                              >
-                                <Award className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                <span>{seal.name}</span>
-                                {seal.badgeText && <span className="text-[10px] font-mono text-[#D05634]">({seal.badgeText})</span>}
-                              </div>
-                            ))}
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            {site.associationSeals.map((seal) => {
+                              const resolvedLogo = getAssociationSealLogoUrl(seal.id || seal.name, seal.iconUrl);
+                              return (
+                                <div 
+                                  key={seal.id}
+                                  className="px-3.5 py-2 rounded-xl bg-zinc-900/90 border border-white/10 text-xs font-bold text-zinc-200 flex items-center gap-2.5 shadow-sm hover:border-[#D05634]/60 transition-colors"
+                                >
+                                  {resolvedLogo ? (
+                                    <img src={resolvedLogo} alt={seal.name} className="w-8 h-8 rounded-lg object-contain shrink-0" />
+                                  ) : (
+                                    <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                                  )}
+                                  <span>{seal.name}</span>
+                                  {seal.badgeText && <span className="text-[10px] font-mono text-[#D05634]">({seal.badgeText})</span>}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1263,16 +1560,70 @@ export function PublicWebsiteView({
         )}
       </main>
 
-      {/* FOOTER */}
-      <footer className="border-t border-white/10 bg-black py-12 px-6">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 text-xs text-zinc-500 font-semibold">
-          <p>© {new Date().getFullYear()} {site.photographerName || site.title}. Todos os direitos reservados.</p>
-          <div className="flex items-center gap-2">
-            <span>Powered by</span>
-            <span className="text-white font-bold">Frame+ Pro Studio</span>
+      {/* FOOTER FOR CLASSIC THEME OR BLOG POST VIEW (SCROLLYTELLING RENDERS RODAPÉ SECTION DIRECTLY IN COMPOSER) */}
+      {(selectedPost ||
+        activeNav !== 'home' ||
+        !(site.scrollytellingThemeId || site.theme_id) ||
+        (site.scrollytellingThemeId || site.theme_id) === 'classic') && (() => {
+        const footerSec =
+          allScrollySections.find((s) => s.type === 'custom_footer_section') ||
+          createSectionFromTemplate('custom_footer_section', site);
+        if (footerSec.visible === false) return null;
+        return (
+          <div
+            onClick={() => {
+              if (isEditorPreview && onSelectSection && footerSec.id) {
+                onSelectSection(footerSec.id);
+              }
+            }}
+            className={isEditorPreview ? 'cursor-pointer relative group/footer' : 'relative'}
+          >
+            <BlockCustomFooterSection block={footerSec} site={site} />
           </div>
-        </div>
-      </footer>
+        );
+      })()}
+
+      {/* FLOATING WHATSAPP BUTTON (BOTTOM-RIGHT CORNER, TRANSPARENT VECTOR SVG WITHOUT WHITE BACKGROUND) */}
+      {(site.showFloatingWhatsapp !== undefined
+        ? site.showFloatingWhatsapp
+        : resolvedScrolly.showFloatingWhatsapp !== false) && (() => {
+        const rawWhatsapp =
+          site.socialLinks?.whatsapp ||
+          resolvedScrolly.whatsappNumber ||
+          '5511999999999';
+        const cleanWhatsapp = String(rawWhatsapp).replace(/[^0-9]/g, '') || '5511999999999';
+        const customMessage =
+          site.whatsappDefaultMessage ||
+          resolvedScrolly.whatsappMessage ||
+          `Olá ${site.photographerName || ''}! Vi seu site e gostaria de solicitar um orçamento.`;
+        const waHref = `https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(customMessage)}`;
+
+        return (
+          <a
+            href={waHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => {
+              if (isEditorPreview && onSelectSection) {
+                const contactSec =
+                  allScrollySections.find(
+                    (s, i) =>
+                      s.type === 'cta_zoom_whatsapp' ||
+                      getSectionNavLabel(s, i).toUpperCase().includes('CONTATO')
+                  ) || allScrollySections[allScrollySections.length - 1];
+                if (contactSec) {
+                  onSelectSection(contactSec.id);
+                }
+              }
+            }}
+            title="Falar no WhatsApp"
+            aria-label="Falar no WhatsApp"
+            className="fixed bottom-6 right-6 z-50 bg-transparent border-0 p-0 rounded-full drop-shadow-[0_8px_20px_rgba(37,211,102,0.4)] hover:scale-110 active:scale-95 transition-transform duration-200 cursor-pointer"
+          >
+            <WhatsAppCircularIcon className="w-14 h-14 md:w-16 md:h-16 block" />
+          </a>
+        );
+      })()}
     </div>
   );
 }
