@@ -126,6 +126,20 @@ export interface SiteData {
   domainStatus?: 'not_connected' | 'propagating' | 'connected';
   domainLastCheckedAt?: string;
   facebookPixelId?: string;
+  // Header & Menu Customization
+  logoHeight?: number;
+  navBgColor?: string;
+  navBorderColor?: string;
+  navTextColor?: string;
+  navActiveTextColor?: string;
+  navCtaBgColor?: string;
+  navCtaTextColor?: string;
+  navFontFamily?: string;
+  navFontSize?: string;
+  navFontWeight?: string;
+  navTextTransform?: 'uppercase' | 'capitalize' | 'lowercase' | 'none';
+  navLetterSpacing?: 'normal' | 'wide' | 'widest';
+  navCustomOpacity?: number;
   // User Saved Custom Themes (Layout-only, isolated from texts/links/media)
   savedCustomThemes?: SavedLayoutTheme[];
 }
@@ -552,7 +566,7 @@ export function PublicWebsiteView({
           <Globe className="w-16 h-16 text-zinc-600 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Website não encontrado</h1>
           <p className="text-zinc-400 text-sm max-w-md mx-auto mb-6">O site informado não existe ou o domínio ainda não foi configurado.</p>
-          <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest">
+          <button onClick={() => window.location.href = '/?app=1'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest hover:bg-[#b84a2b] transition-colors cursor-pointer">
             Voltar para o Frame+
           </button>
         </div>
@@ -633,6 +647,8 @@ export function PublicWebsiteView({
     site.scrollytellingConfig?.sections?.[0]?.logoUrl ||
     (typeof window !== 'undefined' ? localStorage.getItem('frame_saved_logo_url') || '' : '');
 
+  const logoH = site.logoHeight || 40;
+
   // Brand Logo or Name Renderer
   const renderBrand = () => (
     <div
@@ -648,7 +664,12 @@ export function PublicWebsiteView({
       }}
     >
       {effectiveLogoUrl ? (
-        <img src={effectiveLogoUrl} alt={site.photographerName || 'Logo'} className="h-10 w-auto object-contain transition-transform hover:scale-105" />
+        <img 
+          src={effectiveLogoUrl} 
+          alt={site.photographerName || 'Logo'} 
+          className="w-auto object-contain transition-transform hover:scale-105" 
+          style={{ height: `${logoH}px`, maxHeight: '120px' }}
+        />
       ) : (
         <div className="flex items-center gap-2">
           <Camera className="w-6 h-6" style={{ color: accentColor }} />
@@ -663,7 +684,14 @@ export function PublicWebsiteView({
   const resolvedScrolly = resolveScrollyConfig(site);
   const allScrollySections = resolvedScrolly.sections || [];
   const navMenuSections = allScrollySections
-    .map((sec, idx) => ({ sec, idx, label: getSectionNavLabel(sec, idx) }))
+    .map((sec, idx) => {
+      const customLabel = site.customNavLabels?.[sec.id] || sec.navLabel;
+      return { 
+        sec, 
+        idx, 
+        label: customLabel && customLabel.trim().length > 0 ? customLabel.trim() : getSectionNavLabel(sec, idx) 
+      };
+    })
     .filter((item) => item.sec.visible !== false && !item.sec.hideFromNav);
 
   const handleNavSectionClick = (secId: string, idx: number) => {
@@ -683,41 +711,106 @@ export function PublicWebsiteView({
     }, 30);
   };
 
+  // Dynamic Navigation Header Custom Styles
+  const navFontFamilyStyle = site.navFontFamily ? { fontFamily: `'${site.navFontFamily}', sans-serif` } : {};
+  const navFontSizeStyle = site.navFontSize ? `${site.navFontSize}px` : undefined;
+  const navFontWeightStyle = site.navFontWeight || undefined;
+  const navTextTransformClass = 
+    site.navTextTransform === 'lowercase' ? 'lowercase' :
+    site.navTextTransform === 'capitalize' ? 'capitalize' :
+    site.navTextTransform === 'none' ? 'normal-case' : 'uppercase';
+  const navLetterSpacingClass = 
+    site.navLetterSpacing === 'normal' ? 'tracking-normal' :
+    site.navLetterSpacing === 'wide' ? 'tracking-wide' : 'tracking-widest';
+
+  const getHeaderStyle = (): React.CSSProperties => {
+    const styleObj: React.CSSProperties = {
+      ...navFontFamilyStyle
+    };
+    if (site.navTransparency === 'transparent') {
+      styleObj.backgroundColor = site.navBgColor || 'rgba(0,0,0,0.35)';
+      styleObj.borderColor = site.navBorderColor || 'rgba(255,255,255,0.1)';
+    } else if (site.navTransparency === 'solid') {
+      styleObj.backgroundColor = site.navBgColor || '#09090b';
+      styleObj.borderColor = site.navBorderColor || '#27272a';
+    } else if (site.navTransparency === 'custom_color') {
+      const op = (site.navCustomOpacity ?? 90) / 100;
+      styleObj.backgroundColor = site.navBgColor || `rgba(15,15,18,${op})`;
+      styleObj.borderColor = site.navBorderColor || 'rgba(255,255,255,0.15)';
+      if (op < 1) styleObj.backdropFilter = 'blur(16px)';
+    } else {
+      // glass (default)
+      const op = (site.navCustomOpacity ?? 80) / 100;
+      styleObj.backgroundColor = site.navBgColor || `rgba(0,0,0,${op})`;
+      styleObj.borderColor = site.navBorderColor || 'rgba(255,255,255,0.15)';
+      styleObj.backdropFilter = 'blur(24px)';
+    }
+    return styleObj;
+  };
+
+  const getNavLinkStyle = (isActive: boolean): React.CSSProperties => {
+    return {
+      ...navFontFamilyStyle,
+      fontSize: navFontSizeStyle,
+      fontWeight: navFontWeightStyle,
+      color: isActive 
+        ? (site.navActiveTextColor || '#ffffff') 
+        : (site.navTextColor || 'rgba(212,212,216,0.9)')
+    };
+  };
+
+  const getNavCtaStyle = (): React.CSSProperties => {
+    return {
+      ...navFontFamilyStyle,
+      fontSize: navFontSizeStyle,
+      fontWeight: navFontWeightStyle || '700',
+      backgroundColor: site.navCtaBgColor || accentColor,
+      color: site.navCtaTextColor || '#ffffff',
+      borderColor: site.navCtaBgColor || accentColor
+    };
+  };
+
   return (
     <div className={`min-h-screen selection:bg-[#D05634]/20 selection:text-[#D05634] ${themeClasses}`} style={bodyStyle}>
       
-      {/* HEADER NAVIGATION (SUPPORTS 5 DISTINCT NAVBAR STYLES & LOGO IMAGE) */}
+      {/* HEADER NAVIGATION (SUPPORTS 5 DISTINCT NAVBAR STYLES, LOGO SIZE, TYPOGRAPHY & COLORS) */}
       
       {/* NAV STYLE 1: Magic UI Floating Glass Header */}
       {navStyle === 'floating_pill' && (
         <div className="sticky top-4 z-50 px-4 pt-2">
-          <header className={`max-w-5xl mx-auto rounded-2xl px-6 py-3 flex items-center justify-between transition-all ${
-            site.navTransparency === 'transparent'
-              ? 'bg-black/35 backdrop-blur-sm border border-white/10 shadow-none'
-              : site.navTransparency === 'solid'
-                ? 'bg-zinc-950 border border-zinc-800 shadow-2xl'
-                : 'backdrop-blur-2xl bg-black/80 border border-white/15 shadow-2xl'
-          }`}>
+          <header 
+            className="max-w-5xl mx-auto rounded-2xl px-6 py-3 flex items-center justify-between transition-all border shadow-2xl"
+            style={getHeaderStyle()}
+          >
             {renderBrand()}
 
-            <nav className="hidden md:flex items-center gap-7 text-xs font-semibold uppercase tracking-widest text-zinc-300">
+            <nav className={`hidden md:flex items-center gap-7 text-xs font-semibold ${navTextTransformClass} ${navLetterSpacingClass}`}>
               {navMenuSections.map(({ sec, idx, label }) => (
                 <button
                   key={sec.id}
                   onClick={() => handleNavSectionClick(sec.id, idx)}
-                  className={`hover:text-white transition-colors ${activeSection === sec.id ? 'text-white font-bold' : ''}`}
+                  className="hover:opacity-100 transition-all cursor-pointer"
+                  style={getNavLinkStyle(activeSection === sec.id)}
                 >
                   {label}
                 </button>
               ))}
-              {blogPosts.length > 0 && <button onClick={() => { setActiveNav('blog'); setSelectedPost(null); }} className={`hover:text-white transition-colors ${activeNav === 'blog' ? 'text-white font-bold' : ''}`}>Blog</button>}
+              {blogPosts.length > 0 && (
+                <button 
+                  onClick={() => { setActiveNav('blog'); setSelectedPost(null); }} 
+                  className="hover:opacity-100 transition-all cursor-pointer"
+                  style={getNavLinkStyle(activeNav === 'blog')}
+                >
+                  Blog
+                </button>
+              )}
             </nav>
 
             <div className="hidden md:flex items-center">
               <button 
                 onClick={() => { setActiveNav('contato'); setSelectedPost(null); }}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-white shadow-lg transition-transform hover:scale-[1.02] flex items-center gap-2"
-                style={{ backgroundColor: accentColor }}
+                className={`px-5 py-2.5 rounded-xl text-xs shadow-lg transition-transform hover:scale-[1.02] flex items-center gap-2 cursor-pointer ${navTextTransformClass} ${navLetterSpacingClass}`}
+                style={getNavCtaStyle()}
               >
                 <Send className="w-3.5 h-3.5" />
                 {site.customNavLabels?.cta || 'Orçamento'}
@@ -733,15 +826,22 @@ export function PublicWebsiteView({
 
       {/* NAV STYLE 2: Minimalist Top Bar */}
       {navStyle === 'minimal_top' && (
-        <header className="sticky top-0 z-50 backdrop-blur-md bg-black/80 border-b border-white/10 px-8 py-4 flex items-center justify-between">
+        <header 
+          className="sticky top-0 z-50 px-8 py-4 flex items-center justify-between border-b transition-all"
+          style={getHeaderStyle()}
+        >
           {renderBrand()}
-          <nav className="hidden md:flex items-center gap-8 text-xs font-semibold uppercase tracking-widest text-zinc-400">
+          <nav className={`hidden md:flex items-center gap-8 text-xs font-semibold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
-            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="hover:text-white" style={{ color: accentColor }}>
+            <button 
+              onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} 
+              className={`px-4 py-2 rounded-lg text-xs transition-transform hover:scale-105 ${navTextTransformClass} ${navLetterSpacingClass}`}
+              style={getNavCtaStyle()}
+            >
               {site.customNavLabels?.cta || 'Contato'}
             </button>
           </nav>
@@ -753,22 +853,29 @@ export function PublicWebsiteView({
 
       {/* NAV STYLE 3: Centered Logo Header */}
       {navStyle === 'centered_logo' && (
-        <header className="sticky top-0 z-50 backdrop-blur-lg bg-zinc-950/90 border-b border-white/10 px-8 py-4 flex items-center justify-between">
-          <div className="hidden md:flex items-center gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
+        <header 
+          className="sticky top-0 z-50 px-8 py-4 flex items-center justify-between border-b transition-all"
+          style={getHeaderStyle()}
+        >
+          <div className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.slice(0, Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
           </div>
           <div>{renderBrand()}</div>
-          <div className="hidden md:flex items-center gap-6 text-xs font-bold uppercase tracking-widest text-zinc-400">
+          <div className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.slice(Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
-            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="px-4 py-2 rounded-lg border text-white font-bold" style={{ borderColor: accentColor }}>
+            <button 
+              onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} 
+              className={`px-4 py-2 rounded-lg text-xs font-bold shadow-md transition-all ${navTextTransformClass} ${navLetterSpacingClass}`}
+              style={getNavCtaStyle()}
+            >
               {site.customNavLabels?.cta || 'Contato'}
             </button>
           </div>
@@ -780,15 +887,22 @@ export function PublicWebsiteView({
 
       {/* NAV STYLE 4: Dark Editorial Bar */}
       {navStyle === 'dark_editorial' && (
-        <header className="sticky top-0 z-50 bg-black border-b border-zinc-800 px-8 py-5 flex items-center justify-between">
+        <header 
+          className="sticky top-0 z-50 px-8 py-5 flex items-center justify-between border-b transition-all"
+          style={getHeaderStyle()}
+        >
           {renderBrand()}
-          <nav className="hidden md:flex items-center gap-10 text-xs font-black uppercase tracking-widest text-zinc-400">
+          <nav className={`hidden md:flex items-center gap-10 text-xs font-black ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-amber-400">
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
-            <button onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} className="text-amber-400 underline decoration-2 underline-offset-8 font-black">
+            <button 
+              onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} 
+              className={`px-5 py-2.5 rounded-full text-xs shadow-lg transition-transform hover:scale-105 ${navTextTransformClass} ${navLetterSpacingClass}`}
+              style={getNavCtaStyle()}
+            >
               {site.customNavLabels?.cta || 'Agendar'}
             </button>
           </nav>
@@ -800,19 +914,22 @@ export function PublicWebsiteView({
 
       {/* NAV STYLE 5: Modern Split Header */}
       {navStyle === 'modern_split' && (
-        <header className="sticky top-0 z-50 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-6 py-3.5 flex items-center justify-between">
+        <header 
+          className="sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between border-b transition-all"
+          style={getHeaderStyle()}
+        >
           {renderBrand()}
-          <nav className="hidden md:flex items-center gap-6 text-xs font-bold uppercase tracking-widest text-zinc-300">
+          <nav className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:text-white">
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
           </nav>
           <button 
             onClick={() => { setActiveNav('contato'); setSelectedPost(null); }}
-            className="px-5 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-md"
-            style={{ backgroundColor: accentColor }}
+            className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer ${navTextTransformClass} ${navLetterSpacingClass}`}
+            style={getNavCtaStyle()}
           >
             <Send className="w-3.5 h-3.5" />
             {site.customNavLabels?.cta || 'WhatsApp / Contato'}

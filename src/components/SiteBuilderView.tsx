@@ -3415,10 +3415,35 @@ export function SiteBuilderView({
                             />
                           </div>
 
-                          {/* Estilo do Menu de Navegação */}
+                          {/* 1. Tamanho do Logo */}
+                          <div className="space-y-1 pt-2 border-t border-gray-200/60 dark:border-zinc-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
+                                Altura / Tamanho do Logo ({siteData.logoHeight || 40}px)
+                              </label>
+                              <span className="text-[10px] font-mono text-[#D05634] font-bold">
+                                {siteData.logoHeight || 40}px
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={20}
+                              max={120}
+                              step={2}
+                              value={siteData.logoHeight || 40}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setSiteData((prev) => ({ ...prev, logoHeight: val }));
+                                handleSaveSite({ logoHeight: val });
+                              }}
+                              className="w-full accent-[#D05634] cursor-pointer"
+                            />
+                          </div>
+
+                          {/* 2. Estilo do Menu de Navegação */}
                           <div className="space-y-1">
                             <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-600 dark:text-zinc-300">
-                              Estilo do Menu de Navegação (Navbar)
+                              Estilo do Layout do Menu (Navbar)
                             </label>
                             <select
                               value={siteData.navStyle || 'floating_pill'}
@@ -3440,11 +3465,11 @@ export function SiteBuilderView({
                             </select>
                           </div>
 
-                          {/* Transparência e Botão CTA do Menu */}
+                          {/* 3. Transparência e Opacidade */}
                           <div className="grid grid-cols-2 gap-2.5">
                             <div>
                               <label className="block text-[10px] font-semibold text-gray-400 mb-1">
-                                Transparência do Menu
+                                Transparência & Fundo
                               </label>
                               <select
                                 value={siteData.navTransparency || 'glass'}
@@ -3458,15 +3483,257 @@ export function SiteBuilderView({
                                   isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
                                 }`}
                               >
-                                <option value="glass">Vidro Fumê com Blur (Glass)</option>
+                                <option value="glass">Vidro Fumê (Glass Blur)</option>
                                 <option value="transparent">100% Transparente</option>
                                 <option value="solid">Fundo Escuro Sólido</option>
+                                <option value="custom_color">Cor Personalizada</option>
                               </select>
                             </div>
 
                             <div>
                               <label className="block text-[10px] font-semibold text-gray-400 mb-1">
-                                Texto do Botão CTA do Menu
+                                Opacidade do Fundo ({siteData.navCustomOpacity ?? 80}%)
+                              </label>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={5}
+                                value={siteData.navCustomOpacity ?? 80}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setSiteData((prev) => ({ ...prev, navCustomOpacity: val }));
+                                  handleSaveSite({ navCustomOpacity: val });
+                                }}
+                                className="w-full accent-[#D05634] cursor-pointer mt-2"
+                              />
+                            </div>
+                          </div>
+
+                          {/* 4. Cores Customizadas do Menu */}
+                          <div className="space-y-2 pt-2 border-t border-gray-200/60 dark:border-zinc-800">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#D05634] block">
+                              Cores do Menu & Botões
+                            </span>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Cor Fundo do Menu</label>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="color"
+                                    value={siteData.navBgColor || '#000000'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navBgColor: val }));
+                                      handleSaveSite({ navBgColor: val });
+                                    }}
+                                    className="w-7 h-7 rounded-lg border-0 cursor-pointer"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={siteData.navBgColor || '#000000'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navBgColor: val }));
+                                      handleSaveSite({ navBgColor: val });
+                                    }}
+                                    className={`w-full px-2 py-1 rounded-lg border text-[10px] font-mono ${
+                                      isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Cor da Borda</label>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="color"
+                                    value={siteData.navBorderColor || '#3f3f46'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navBorderColor: val }));
+                                      handleSaveSite({ navBorderColor: val });
+                                    }}
+                                    className="w-7 h-7 rounded-lg border-0 cursor-pointer"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={siteData.navBorderColor || '#3f3f46'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navBorderColor: val }));
+                                      handleSaveSite({ navBorderColor: val });
+                                    }}
+                                    className={`w-full px-2 py-1 rounded-lg border text-[10px] font-mono ${
+                                      isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Texto dos Links</label>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="color"
+                                    value={siteData.navTextColor || '#d4d4d8'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navTextColor: val }));
+                                      handleSaveSite({ navTextColor: val });
+                                    }}
+                                    className="w-7 h-7 rounded-lg border-0 cursor-pointer"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={siteData.navTextColor || '#d4d4d8'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navTextColor: val }));
+                                      handleSaveSite({ navTextColor: val });
+                                    }}
+                                    className={`w-full px-2 py-1 rounded-lg border text-[10px] font-mono ${
+                                      isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Botão CTA (Fundo)</label>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="color"
+                                    value={siteData.navCtaBgColor || siteData.primaryColor || '#D05634'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navCtaBgColor: val }));
+                                      handleSaveSite({ navCtaBgColor: val });
+                                    }}
+                                    className="w-7 h-7 rounded-lg border-0 cursor-pointer"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={siteData.navCtaBgColor || siteData.primaryColor || '#D05634'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setSiteData((prev) => ({ ...prev, navCtaBgColor: val }));
+                                      handleSaveSite({ navCtaBgColor: val });
+                                    }}
+                                    className={`w-full px-2 py-1 rounded-lg border text-[10px] font-mono ${
+                                      isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 5. Tipografia do Menu e Botões */}
+                          <div className="space-y-2 pt-2 border-t border-gray-200/60 dark:border-zinc-800">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#D05634] block">
+                              Tipografia dos Botões & Links
+                            </span>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Família de Fonte</label>
+                                <select
+                                  value={siteData.navFontFamily || ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSiteData((prev) => ({ ...prev, navFontFamily: val }));
+                                    handleSaveSite({ navFontFamily: val });
+                                  }}
+                                  className={`w-full px-2 py-1.5 rounded-lg border text-xs ${
+                                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                  }`}
+                                >
+                                  <option value="">Padrão do Site</option>
+                                  <option value="Outfit">Outfit (Moderna)</option>
+                                  <option value="Plus Jakarta Sans">Plus Jakarta Sans</option>
+                                  <option value="Inter">Inter (Limpa)</option>
+                                  <option value="Montserrat">Montserrat</option>
+                                  <option value="Playfair Display">Playfair Display (Serif)</option>
+                                  <option value="Cormorant Garamond">Cormorant Garamond (Editorial)</option>
+                                  <option value="Syne">Syne (Futurista)</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Tamanho da Fonte</label>
+                                <select
+                                  value={siteData.navFontSize || '12'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSiteData((prev) => ({ ...prev, navFontSize: val }));
+                                    handleSaveSite({ navFontSize: val });
+                                  }}
+                                  className={`w-full px-2 py-1.5 rounded-lg border text-xs ${
+                                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                  }`}
+                                >
+                                  <option value="10">10px (Muito Pequeno)</option>
+                                  <option value="11">11px (Compacto)</option>
+                                  <option value="12">12px (Padrão)</option>
+                                  <option value="13">13px (Médio)</option>
+                                  <option value="14">14px (Destaque)</option>
+                                  <option value="16">16px (Grande)</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Peso (Espessura)</label>
+                                <select
+                                  value={siteData.navFontWeight || '600'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSiteData((prev) => ({ ...prev, navFontWeight: val }));
+                                    handleSaveSite({ navFontWeight: val });
+                                  }}
+                                  className={`w-full px-2 py-1.5 rounded-lg border text-xs ${
+                                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                  }`}
+                                >
+                                  <option value="400">Normal (400)</option>
+                                  <option value="500">Médio (500)</option>
+                                  <option value="600">Semibold (600)</option>
+                                  <option value="700">Bold / Negrito (700)</option>
+                                  <option value="900">Black / Extra (900)</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Caixa de Texto</label>
+                                <select
+                                  value={siteData.navTextTransform || 'uppercase'}
+                                  onChange={(e) => {
+                                    const val = e.target.value as any;
+                                    setSiteData((prev) => ({ ...prev, navTextTransform: val }));
+                                    handleSaveSite({ navTextTransform: val });
+                                  }}
+                                  className={`w-full px-2 py-1.5 rounded-lg border text-xs ${
+                                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                  }`}
+                                >
+                                  <option value="uppercase">CAIXA ALTA (MAIÚSCULAS)</option>
+                                  <option value="capitalize">Capitalizado (Primeira Maiúscula)</option>
+                                  <option value="lowercase">minúsculas</option>
+                                  <option value="none">Normal (Sem Alteração)</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 6. Cortes & Escritas dos Botões / Links */}
+                          <div className="space-y-2 pt-2 border-t border-gray-200/60 dark:border-zinc-800">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#D05634] block">
+                              Escritas dos Botões & Links (Cortes / Personalização)
+                            </span>
+                            
+                            <div>
+                              <label className="block text-[10px] font-semibold text-gray-400 mb-1">
+                                Texto do Botão CTA Principal (ex: ORÇAMENTO)
                               </label>
                               <input
                                 type="text"
@@ -3481,6 +3748,33 @@ export function SiteBuilderView({
                                   isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
                                 }`}
                               />
+                            </div>
+
+                            <div className="space-y-1.5 pt-1">
+                              <span className="text-[10px] font-medium text-gray-400 block">
+                                Alterar escritas de cada link do menu:
+                              </span>
+                              {activeSections.map((sec, idx) => (
+                                <div key={sec.id} className="flex items-center gap-2">
+                                  <span className="text-[10px] text-gray-500 font-mono w-16 truncate">
+                                    Item {idx + 1}:
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={siteData.customNavLabels?.[sec.id] || sec.navLabel || ''}
+                                    onChange={(e) => {
+                                      const nextLabels = { ...(siteData.customNavLabels || {}), [sec.id]: e.target.value };
+                                      setSiteData((prev) => ({ ...prev, customNavLabels: nextLabels }));
+                                      handleSaveSite({ customNavLabels: nextLabels });
+                                      updateSectionBlock(sec.id, { navLabel: e.target.value });
+                                    }}
+                                    placeholder={getSectionNavLabel(sec, idx)}
+                                    className={`flex-1 px-2 py-1 rounded-lg border text-xs font-semibold ${
+                                      isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                    }`}
+                                  />
+                                </div>
+                              ))}
                             </div>
                           </div>
                         </div>

@@ -8972,6 +8972,7 @@ export default function App() {
   }, [quotaExceeded]);
 
   const urlParams = new URLSearchParams(window.location.search);
+  const forceMainApp = urlParams.get('app') === '1' || urlParams.get('main') === '1' || urlParams.get('dashboard') === '1';
   const pathSegment = window.location.pathname.replace(/^\/+/, '').split('/')[0];
   const gallerySlug = urlParams.get('gallery');
   const querySiteSlug = urlParams.get('site') || urlParams.get('s');
@@ -8979,17 +8980,30 @@ export default function App() {
   const pathSiteSlug = (!reservedPaths.includes(pathSegment.toLowerCase()) && pathSegment && !pathSegment.includes('.')) ? pathSegment : '';
   const siteSlug = querySiteSlug || pathSiteSlug;
   const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+  const customPlatformHost = ((import.meta as any).env?.VITE_PLATFORM_HOST || '').toLowerCase();
+  
   const isPlatformHost =
+    forceMainApp ||
     !currentHost ||
     currentHost === 'localhost' ||
     currentHost === '127.0.0.1' ||
+    /^\d+\.\d+\.\d+\.\d+$/.test(currentHost) ||
+    (customPlatformHost && currentHost.includes(customPlatformHost)) ||
     currentHost.endsWith('.run.app') ||
     currentHost.endsWith('.framepro.click') ||
     currentHost.endsWith('.framepro.com') ||
     currentHost.endsWith('.google.com') ||
-    currentHost.endsWith('.googleusercontent.com');
+    currentHost.endsWith('.googleusercontent.com') ||
+    currentHost.endsWith('.easypanel.host') ||
+    currentHost.includes('easypanel') ||
+    currentHost.endsWith('.railway.app') ||
+    currentHost.endsWith('.render.com') ||
+    currentHost.endsWith('.vercel.app') ||
+    currentHost.endsWith('.netlify.app') ||
+    currentHost.endsWith('.fly.dev') ||
+    currentHost.endsWith('.pages.dev');
   const isCustomDomainHost = !isPlatformHost && !gallerySlug && (!pathSegment || !reservedPaths.includes(pathSegment.toLowerCase()));
-  const isPublicView = !!gallerySlug || !!siteSlug || isCustomDomainHost;
+  const isPublicView = !forceMainApp && (!!gallerySlug || !!siteSlug || isCustomDomainHost);
 
   // 0. Connection check (Non-blocking warning)
   useEffect(() => {
