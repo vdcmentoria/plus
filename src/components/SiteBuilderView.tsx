@@ -85,6 +85,10 @@ import {
   getAssociationSealLogoUrl
 } from './ScrollytellingThemes';
 import { convertToWebP } from '../utils/imageOptimizer';
+import {
+  QuoteBuilderDrawerPanel,
+  QuoteFormConfig
+} from './QuoteFormBuilder';
 
 export interface SiteLead {
   id: string;
@@ -94,7 +98,17 @@ export interface SiteLead {
   phone: string;
   eventType: string;
   eventDate?: string;
+  dateUndefined?: boolean;
+  location?: string;
   budget?: string;
+  servicesWanted?: string[];
+  addons?: string[];
+  customFields?: Record<string, any>;
+  crmPipelineId?: string;
+  crmPipelineName?: string;
+  crmColumnId?: string;
+  crmColumnName?: string;
+  crmSynced?: boolean;
   message?: string;
   submittedAt: string;
   status?: 'Novo' | 'Em Atendimento' | 'Fechado' | 'Arquivado';
@@ -141,7 +155,7 @@ export function SiteBuilderView({
   
   // Ardena Sidebar Selected Menu Item ID
   const [activeMenuId, setActiveMenuId] = useState<
-    'dobras' | 'hero' | 'sobre' | 'pacotes' | 'temas' | 'fontes' | 'cores' | 'midia' | 'galerias' | 'blog' | 'seo_rea' | 'dominio' | 'leads'
+    'dobras' | 'hero' | 'sobre' | 'pacotes' | 'temas' | 'fontes' | 'cores' | 'orcamento' | 'midia' | 'galerias' | 'blog' | 'seo_rea' | 'dominio' | 'leads'
   >('dobras');
 
   const [activeSection, setActiveSection] = useState<string>('hero');
@@ -1834,6 +1848,7 @@ export function SiteBuilderView({
               )}
 
               {[
+                { id: 'orcamento', label: 'Orçamento', icon: FileText, badge: 'PRO' },
                 { id: 'temas', label: 'Temas Visuais', icon: Palette },
                 { id: 'fontes', label: 'Tipografia & Fontes', icon: Type },
                 { id: 'cores', label: 'Cores Customizadas', icon: Sliders }
@@ -1847,6 +1862,18 @@ export function SiteBuilderView({
                     onClick={() => {
                       setActiveMenuId(item.id as any);
                       setIsDrawerCollapsed(false);
+                      if (item.id === 'orcamento') {
+                        setTimeout(() => {
+                          const viewport = document.querySelector('[data-scrolly-viewport="true"]');
+                          const target =
+                            viewport?.querySelector('#section-leads') ||
+                            viewport?.querySelector('[id^="section-sec_cta"]') ||
+                            document.getElementById('section-leads');
+                          if (target) {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }
+                        }, 120);
+                      }
                     }}
                     className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all relative ${
                       isActive 
@@ -1859,6 +1886,13 @@ export function SiteBuilderView({
                       <Icon className="w-4 h-4 shrink-0" />
                       {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
                     </div>
+                    {!isSidebarCollapsed && (item as any).badge && (
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                        isActive ? 'bg-white/25 text-white' : 'bg-[#D05634]/15 text-[#D05634]'
+                      }`}>
+                        {(item as any).badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -1875,7 +1909,7 @@ export function SiteBuilderView({
               {[
                 { id: 'seo_rea', label: 'SEO e GEO', icon: BarChart2 },
                 { id: 'dominio', label: 'Domínio & Slug', icon: Globe },
-                { id: 'leads', label: 'Leads GorilaForms', icon: Inbox, count: leads.length }
+                { id: 'leads', label: 'Leads Formulário PRO', icon: Inbox, count: leads.length }
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeMenuId === item.id;
@@ -1942,12 +1976,13 @@ export function SiteBuilderView({
                   {activeMenuId === 'temas' && 'TEMAS VISUAIS'}
                   {activeMenuId === 'fontes' && 'TIPOGRAFIA & FONTES'}
                   {activeMenuId === 'cores' && 'CORES CUSTOMIZADAS'}
+                  {activeMenuId === 'orcamento' && 'ORÇAMENTO & CAIXA PRO'}
                   {activeMenuId === 'midia' && 'UPLOADS DE MÍDIAS'}
                   {activeMenuId === 'galerias' && 'GALERIAS'}
                   {activeMenuId === 'blog' && 'BLOG'}
                   {activeMenuId === 'seo_rea' && 'SEO E GEO'}
                   {activeMenuId === 'dominio' && 'DOMÍNIO & SLUG'}
-                  {activeMenuId === 'leads' && 'LEADS GORILAFORMS'}
+                  {activeMenuId === 'leads' && 'LEADS FORMULÁRIO PRO'}
                 </h3>
                 {isFullScreenConfigMenu && (
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#D05634]/15 text-[#D05634]">
@@ -6039,7 +6074,9 @@ export function SiteBuilderView({
                             onClick={() => {
                               setSelectedScrollySectionId(sec.id);
                               setTimeout(() => {
-                                const el = document.getElementById(`scrolly-sec-${sec.id}`);
+                                const el = document.getElementById(`scrolly-sec-${sec.id}`) ||
+                                           document.querySelector(`[data-section-id="${sec.id}"]`) ||
+                                           document.querySelector(`[data-section-type="${sec.type}"]`);
                                 if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                               }, 60);
                             }}
@@ -7375,7 +7412,7 @@ export function SiteBuilderView({
                               <CheckCircle2 className="w-4 h-4 shrink-0" />
                               <div>
                                 <b className="block">Lead</b>
-                                <span className="text-[10px] text-gray-500 font-normal">Disparado ao enviar formulário GorilaForms</span>
+                                <span className="text-[10px] text-gray-500 font-normal">Disparado ao enviar o Formulário PRO</span>
                               </div>
                             </div>
                           </div>
@@ -8553,18 +8590,45 @@ export function SiteBuilderView({
               );
             })()}
 
-            {/* FUNCTION 13: LEADS GORILAFORMS (TELA INTEIRA) */}
+            {/* FUNCTION 12B: ORÇAMENTO (CAIXA PERSONALIZÁVEL, DRAG & DROP, LIQUID GLASS E CONEXÃO CRM FRAMEPRO) */}
+            {activeMenuId === 'orcamento' && (
+              <QuoteBuilderDrawerPanel
+                siteData={siteData}
+                isDarkShell={isDarkShell}
+                userId={user?.uid || user?.id || userProfile?.id || user?.email}
+                onChangeQuoteConfig={(nextQuoteConfig: QuoteFormConfig) => {
+                  setSiteData((prev) => {
+                    const updated = {
+                      ...prev,
+                      quoteFormConfig: nextQuoteConfig
+                    };
+                    siteDataRef.current = updated;
+                    return updated;
+                  });
+                }}
+              />
+            )}
+
+            {/* FUNCTION 13: LEADS FORMULÁRIO PRO (TELA INTEIRA + CONEXÃO CRM FRAMEPRO) */}
             {activeMenuId === 'leads' && (
               <div className="max-w-5xl mx-auto w-full space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h4 className="text-sm font-black uppercase tracking-wider text-gray-900 dark:text-white">
-                      Caixa de Entrada · Leads GorilaForms ({leads.length})
+                      Caixa de Entrada · Leads Formulário PRO ({leads.length})
                     </h4>
                     <p className="text-xs text-gray-500 dark:text-zinc-400">
-                      Todos os pedidos de orçamento e contatos enviados pelo formulário do seu site aparecem aqui em tempo real.
+                      Todos os pedidos de orçamento respondidos no seu site caem aqui no Formulário PRO e são sincronizados automaticamente com o seu Funil no FramePro CRM.
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveMenuId('orcamento')}
+                    className="px-4 py-2 rounded-xl bg-[#D05634] hover:bg-[#b84a2b] text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 shrink-0 shadow-md"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Personalizar Caixa de Orçamento & Funil CRM</span>
+                  </button>
                 </div>
 
                 {leads.length === 0 ? (
@@ -8578,41 +8642,172 @@ export function SiteBuilderView({
                       Nenhum lead recebido ainda
                     </p>
                     <p className="text-xs text-gray-500 max-w-md mx-auto">
-                      Assim que um visitante preencher o formulário de orçamento no seu site, os dados aparecerão aqui com botão direto para chamar no WhatsApp.
+                      Assim que um visitante preencher o formulário de orçamento no seu site, os dados aparecerão aqui no Formulário PRO e serão enviados para a coluna escolhida no FramePro CRM.
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {leads.map((lead) => (
-                      <div
-                        key={lead.id}
-                        className={`p-5 rounded-2xl border space-y-3 transition-all ${
-                          isDarkShell ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200 shadow-sm'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-black text-sm text-gray-900 dark:text-white">{lead.name}</p>
-                            <p className="text-xs text-gray-500">{lead.email} • {lead.phone}</p>
+                    {leads.map((lead) => {
+                      const cleanPhone = String(lead.phone || '').replace(/\D/g, '');
+                      const customEntries = lead.customFields ? Object.entries(lead.customFields) : [];
+                      return (
+                        <div
+                          key={lead.id}
+                          className={`p-5 rounded-2xl border space-y-3.5 transition-all ${
+                            isDarkShell ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-gray-200 shadow-sm'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-black text-sm text-gray-900 dark:text-white">{lead.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {lead.phone || 'Sem WhatsApp'} {lead.email ? `• ${lead.email}` : ''}
+                              </p>
+                              {lead.submittedAt && (
+                                <p className="text-[10px] text-gray-400 mt-0.5">
+                                  Recebido em {new Date(lead.submittedAt).toLocaleString('pt-BR')}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="px-2.5 py-1 rounded-full bg-[#D05634]/15 text-[#D05634] text-[10px] font-black uppercase">
+                                {lead.eventType || 'Orçamento'}
+                              </span>
+                              {lead.crmPipelineName && (
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 text-[9px] font-black uppercase tracking-wider">
+                                  CRM: {lead.crmPipelineName} → {lead.crmColumnName || 'Novo Lead'}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <span className="px-2.5 py-1 rounded-full bg-[#D05634]/15 text-[#D05634] text-[10px] font-black uppercase">
-                            {lead.eventType || 'Orçamento'}
-                          </span>
+
+                          {(lead.eventDate || lead.location || lead.budget) && (
+                            <div className="flex flex-wrap gap-2 text-[11px] text-gray-600 dark:text-zinc-300">
+                              {lead.eventDate && (
+                                <span className="px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-zinc-900 font-semibold">
+                                  📅 Data: {lead.eventDate}
+                                </span>
+                              )}
+                              {lead.location && (
+                                <span className="px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-zinc-900 font-semibold">
+                                  📍 Cidade: {lead.location}
+                                </span>
+                              )}
+                              {lead.budget && (
+                                <span className="px-2.5 py-1 rounded-lg bg-[#D05634]/10 text-[#D05634] font-bold">
+                                  💰 {lead.budget}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {((lead.servicesWanted && lead.servicesWanted.length > 0) ||
+                            (lead.addons && lead.addons.length > 0)) && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(lead.servicesWanted || []).map((srv, idx) => (
+                                <span
+                                  key={`srv-${idx}`}
+                                  className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                                >
+                                  ✓ {srv}
+                                </span>
+                              ))}
+                              {(lead.addons || []).map((add, idx) => (
+                                <span
+                                  key={`add-${idx}`}
+                                  className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400"
+                                >
+                                  + {add}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {customEntries.length > 0 && (
+                            <div className={`p-3 rounded-xl border text-[11px] space-y-1 ${
+                              isDarkShell ? 'bg-zinc-900/60 border-zinc-800 text-zinc-300' : 'bg-gray-50 border-gray-200 text-gray-700'
+                            }`}>
+                              {customEntries.map(([k, v]) => {
+                                const valStr = Array.isArray(v) ? v.join(', ') : String(v || '');
+                                if (!valStr) return null;
+                                return (
+                                  <div key={k} className="flex items-start justify-between gap-2">
+                                    <span className="text-gray-400 font-semibold capitalize">{k.replace(/^f_/, '').replace(/_/g, ' ')}:</span>
+                                    <span className="font-bold text-right">{valStr}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {lead.message && (
+                            <p className="text-xs text-gray-600 dark:text-zinc-400 italic bg-gray-50 dark:bg-zinc-900/60 p-3 rounded-xl">
+                              "{lead.message}"
+                            </p>
+                          )}
+
+                          <div className="pt-2 border-t border-gray-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              {cleanPhone && (
+                                <a
+                                  href={`https://wa.me/${cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`}?text=${encodeURIComponent(`Olá ${lead.name}! Recebi seu pedido de orçamento pelo site.`)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition-colors"
+                                >
+                                  <span>Chamar no WhatsApp</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`/api/sites/${siteData.id}/leads/${lead.id}/sync-crm`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        pipelineId: siteData.quoteFormConfig?.crmConnection?.pipelineId,
+                                        pipelineName: siteData.quoteFormConfig?.crmConnection?.pipelineName,
+                                        columnId: siteData.quoteFormConfig?.crmConnection?.columnId,
+                                        columnName: siteData.quoteFormConfig?.crmConnection?.columnName
+                                      })
+                                    });
+                                    if (res.ok) {
+                                      const data = await res.json();
+                                      if (data.lead) {
+                                        setLeads((prev) => prev.map((l) => (l.id === lead.id ? data.lead : l)));
+                                      }
+                                    }
+                                  } catch {}
+                                }}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-colors ${
+                                  isDarkShell
+                                    ? 'border-zinc-800 text-zinc-300 hover:border-[#D05634] hover:text-white'
+                                    : 'border-gray-200 text-gray-700 hover:border-[#D05634] hover:text-[#D05634]'
+                                }`}
+                                title="Reenviar para o Funil do FramePro CRM"
+                              >
+                                Sincronizar CRM
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await fetch(`/api/sites/${siteData.id}/leads/${lead.id}`, { method: 'DELETE' });
+                                  setLeads((prev) => prev.filter((l) => l.id !== lead.id));
+                                } catch {}
+                              }}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                              title="Excluir Lead"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                        {(lead.eventDate || lead.location || lead.budget) && (
-                          <div className="flex flex-wrap gap-2 text-[11px] text-gray-600 dark:text-zinc-300">
-                            {lead.eventDate && <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-zinc-900">Data: {lead.eventDate}</span>}
-                            {lead.location && <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-zinc-900">Local: {lead.location}</span>}
-                            {lead.budget && <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-zinc-900 font-bold text-[#D05634]">{lead.budget}</span>}
-                          </div>
-                        )}
-                        {lead.message && (
-                          <p className="text-xs text-gray-600 dark:text-zinc-400 italic bg-gray-50 dark:bg-zinc-900/60 p-3 rounded-xl">
-                            "{lead.message}"
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -8690,14 +8885,19 @@ export function SiteBuilderView({
                   if (secId === 'hero' && activeSections.length > 0) {
                     setSelectedScrollySectionId(activeSections[0].id);
                   }
+                  if (secId === 'orcamento') {
+                    setActiveMenuId('orcamento');
+                    return;
+                  }
                   const secToMenuMap: Record<string, any> = {
                     hero: 'dobras',
                     portfolio: 'dobras',
                     about: 'dobras',
                     pricing: 'dobras',
-                    leads: 'dobras',
+                    leads: 'orcamento',
                     blog: 'dobras',
-                    temas: 'temas'
+                    temas: 'temas',
+                    orcamento: 'orcamento'
                   };
                   setActiveMenuId(secToMenuMap[secId] || 'dobras');
                 }}

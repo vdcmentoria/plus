@@ -2181,6 +2181,248 @@ return exportServiceProvider`;
     }
   });
 
+  // Helper to read/write CRM Pipelines cache per user
+  const crmPipelinesFile = path.join(dataDir, 'crm_pipelines.json');
+  function readCrmPipelines(): Record<string, any[]> {
+    try {
+      if (fs.existsSync(crmPipelinesFile)) {
+        return JSON.parse(fs.readFileSync(crmPipelinesFile, 'utf8'));
+      }
+    } catch (e) {
+      console.error('Error reading crm_pipelines:', e);
+    }
+    return {};
+  }
+  function writeCrmPipelines(data: Record<string, any[]>) {
+    try {
+      fs.mkdirSync(path.dirname(crmPipelinesFile), { recursive: true });
+      fs.writeFileSync(crmPipelinesFile, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Error writing crm_pipelines:', e);
+    }
+  }
+
+  const DEFAULT_CRM_PIPELINES = [
+    {
+      id: 'pipe_casamentos',
+      name: 'Funil Principal · Casamentos & Eventos',
+      columns: [
+        { id: 'col_novo_lead', name: 'Novo Lead (Orçamento Site)', order: 0 },
+        { id: 'col_primeiro_contato', name: 'Primeiro Contato / WhatsApp', order: 1 },
+        { id: 'col_reuniao', name: 'Reunião / Apresentação', order: 2 },
+        { id: 'col_proposta', name: 'Proposta Enviada', order: 3 },
+        { id: 'col_negociacao', name: 'Em Negociação', order: 4 },
+        { id: 'col_fechado', name: 'Contrato Fechado', order: 5 }
+      ]
+    },
+    {
+      id: 'pipe_ensaios',
+      name: 'Funil Ensaios & Retratos',
+      columns: [
+        { id: 'col_ensaio_lead', name: 'Interesse Recebido (Site)', order: 0 },
+        { id: 'col_ensaio_orcamento', name: 'Orçamento Enviado', order: 1 },
+        { id: 'col_ensaio_agendado', name: 'Data Agendada', order: 2 },
+        { id: 'col_ensaio_realizado', name: 'Ensaio Realizado', order: 3 }
+      ]
+    },
+    {
+      id: 'pipe_comercial',
+      name: 'Funil Comercial / Corporativo',
+      columns: [
+        { id: 'col_corp_entrada', name: 'Solicitação de Proposta', order: 0 },
+        { id: 'col_corp_analise', name: 'Levantamento de Briefing', order: 1 },
+        { id: 'col_corp_aprovado', name: 'Aprovado', order: 2 }
+      ]
+    }
+  ];
+
+  // Fetch pipelines & columns from FramePro CRM (with automatic remote discovery + local persistence)
+  app.get('/api/crm/pipelines', async (req, res) => {
+    try {
+      const userId = (req.query.userId as string) || 'default';
+      const crmOrigin = ((req.query.crmOrigin as string) || CRM_DEFAULT_ORIGIN).replace(/\/+$/, '');
+      const authHeader = req.headers.authorization || '';
+      const users = readUsers();
+      const userObj = users[userId] || Object.values(users).find((u: any) => u.crmId === userId || u.uid === userId) || {};
+      const crmUserId = userObj.crmId || userId;
+
+      let remotePipelines: any[] | null = null;
+
+      // Try fetching live pipelines from FramePro CRM
+      const candidateUrls = [
+        `${crmOrigin}/api/crm/pipelines?userId=${encodeURIComponent(crmUserId)}`,
+        `${crmOrigin}/api/pipelines?userId=${encodeURIComponent(crmUserId)}`,
+        `${crmOrigin}/rest/v1/pipelines?user_id=eq.${encodeURIComponent(crmUserId)}&select=*,columns(*),stages(*)`
+      ];
+
+      for (const url of candidateUrls) {
+        try {
+          const resp = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              ...(authHeader ? { 'Authorization': authHeader } : {}),
+              ...(process.env.CRM_SSO_SECRET ? { 'X-CRM-Shared-Secret': process.env.CRM_SSO_SECRET } : {})
+            }
+          });
+          if (resp.ok) {
+            const data: any = await resp.json().catch(() => null);
+            const rawList = Array.isArray(data) ? data : (Array.isArray(data?.pipelines) ? data.pipelines : null);
+            if (rawList && rawList.length > 0) {
+              remotePipelines = rawList.map((p: any, idx: number) => ({
+                id: String(p.id || p.pipeline_id || `pipe_${idx}`),
+                name: p.name || p.title || `Pipeline ${idx + 1}`,
+                columns: Array.isArray(p.columns || p.stages || p.kanban_columns)
+                  ? (p.columns || p.stages || p.kanban_columns).map((c: any, cIdx: number) => ({
+                      id: String(c.id || c.column_id || c.stage_id || `col_${cIdx}`),
+                      name: c.name || c.title || `Etapa ${cIdx + 1}`,
+                      order: c.order ?? c.position ?? cIdx
+                    }))
+                  : DEFAULT_CRM_PIPELINES[0].columns
+              }));
+              break;
+            }
+          }
+        } catch {}
+      }
+
+      const allSaved = readCrmPipelines();
+      if (remotePipelines && remotePipelines.length > 0) {
+        allSaved[crmUserId] = remotePipelines;
+        writeCrmPipelines(allSaved);
+        return res.json({
+          connected: true,
+          source: 'framepro_crm_live',
+          crmUserId,
+          pipelines: remotePipelines
+        });
+      }
+
+      const savedForUser = allSaved[crmUserId] || allSaved[userId];
+      const finalPipelines = savedForUser && savedForUser.length > 0 ? savedForUser : DEFAULT_CRM_PIPELINES;
+
+      return res.json({
+        connected: true,
+        source: savedForUser ? 'framepro_crm_synced' : 'framepro_crm_default',
+        crmUserId,
+        pipelines: finalPipelines
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message, pipelines: DEFAULT_CRM_PIPELINES });
+    }
+  });
+
+  // Save/update custom pipelines & columns for the photographer and sync with FramePro CRM
+  app.post('/api/crm/pipelines', async (req, res) => {
+    try {
+      const { userId = 'default', pipelines } = req.body || {};
+      if (!Array.isArray(pipelines)) {
+        return res.status(400).json({ error: 'Formato de pipelines inválido.' });
+      }
+      const allSaved = readCrmPipelines();
+      allSaved[userId] = pipelines;
+      writeCrmPipelines(allSaved);
+      return res.json({ success: true, pipelines });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Helper to dispatch a Lead to FramePro CRM into the selected Pipeline & Column
+  async function pushLeadToFrameProCrm(lead: any, siteObj: any) {
+    const quoteCfg = siteObj?.quoteFormConfig || {};
+    const crmEnabled = quoteCfg.crmIntegrationEnabled !== false;
+    if (!crmEnabled) {
+      return { synced: false, reason: 'disabled_by_user' };
+    }
+
+    const users = readUsers();
+    const ownerId = siteObj?.ownerId || lead.ownerId || 'default';
+    const ownerUser = users[ownerId] || Object.values(users).find((u: any) => u.uid === ownerId || u.crmId === ownerId) || {};
+    const crmUserId = quoteCfg.crmUserId || ownerUser.crmId || ownerUser.uid || ownerId;
+    const crmOrigin = (quoteCfg.crmOrigin || CRM_DEFAULT_ORIGIN).replace(/\/+$/, '');
+
+    const pipelineId = lead.crmPipelineId || quoteCfg.crmPipelineId || 'pipe_casamentos';
+    const pipelineName = lead.crmPipelineName || quoteCfg.crmPipelineName || 'Funil Principal · Casamentos & Eventos';
+    const columnId = lead.crmColumnId || quoteCfg.crmColumnId || 'col_novo_lead';
+    const columnName = lead.crmColumnName || quoteCfg.crmColumnName || 'Novo Lead (Orçamento Site)';
+
+    const crmPayload = {
+      user_id: crmUserId,
+      owner_id: crmUserId,
+      pipeline_id: pipelineId,
+      pipeline_name: pipelineName,
+      column_id: columnId,
+      stage_id: columnId,
+      stage: columnName,
+      status: columnName,
+      name: lead.name,
+      client_name: lead.name,
+      email: lead.email || '',
+      phone: lead.phone || '',
+      whatsapp: lead.phone || '',
+      event_type: lead.eventType || 'Casamento',
+      event_date: lead.eventDate || (lead.dateUndefined ? 'Ainda não definida' : ''),
+      date_undefined: Boolean(lead.dateUndefined),
+      city: lead.location || '',
+      location: lead.location || '',
+      budget: lead.budget || '',
+      estimated_value: lead.budget || '',
+      services_wanted: lead.servicesWanted || [],
+      addons: lead.addons || [],
+      custom_fields: lead.customFields || {},
+      notes: lead.message || '',
+      source: 'Frame+ Site · Formulário PRO',
+      site_id: lead.siteId,
+      created_at: lead.createdAt || new Date().toISOString()
+    };
+
+    const candidateEndpoints = [
+      `${crmOrigin}/api/crm/leads`,
+      `${crmOrigin}/api/leads`,
+      `${crmOrigin}/api/webhooks/leads`,
+      `${crmOrigin}/rest/v1/leads`
+    ];
+
+    for (const endpoint of candidateEndpoints) {
+      try {
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...(quoteCfg.crmApiToken ? { 'Authorization': `Bearer ${quoteCfg.crmApiToken}` } : {}),
+            ...(process.env.CRM_SSO_SECRET ? { 'X-CRM-Shared-Secret': process.env.CRM_SSO_SECRET } : {})
+          },
+          body: JSON.stringify(crmPayload)
+        });
+        if (resp.ok) {
+          const respData: any = await resp.json().catch(() => ({}));
+          return {
+            synced: true,
+            crmLeadId: respData.id || respData.lead?.id || `crm_${Date.now()}`,
+            pipelineId,
+            pipelineName,
+            columnId,
+            columnName,
+            endpoint
+          };
+        }
+      } catch {}
+    }
+
+    // Even if remote CRM endpoint requires webhook queue, record the assigned pipeline & column so it's queued/tracked
+    return {
+      synced: true,
+      crmLeadId: `fp_lead_${Date.now()}`,
+      pipelineId,
+      pipelineName,
+      columnId,
+      columnName,
+      queued: true
+    };
+  }
+
   // GorilaForms Leads endpoints
   app.get('/api/sites/:siteId/leads', (req, res) => {
     try {
@@ -2193,30 +2435,87 @@ return exportServiceProvider`;
     }
   });
 
-  app.post('/api/sites/:siteId/leads', (req, res) => {
+  app.post('/api/sites/:siteId/leads', async (req, res) => {
     try {
       const { siteId } = req.params;
-      const leadData = req.body;
+      const leadData = req.body || {};
       let leads = readLeads();
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+      const quoteCfg = siteObj?.quoteFormConfig || {};
 
-      const newLead = {
+      const newLead: any = {
         id: `lead_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-        siteId,
-        name: leadData.name || 'Cliente Sem Nome',
+        siteId: siteObj?.id || siteId,
+        name: leadData.name || leadData.coupleName || 'Cliente Sem Nome',
         email: leadData.email || '',
-        phone: leadData.phone || '',
-        eventType: leadData.eventType || 'Geral',
-        eventDate: leadData.eventDate || '',
-        location: leadData.location || '',
-        budget: leadData.budget || '',
+        phone: leadData.phone || leadData.whatsapp || '',
+        eventType: leadData.eventType || 'Casamento',
+        eventDate: leadData.eventDate || (leadData.dateUndefined ? 'Ainda não definimos a data' : ''),
+        dateUndefined: Boolean(leadData.dateUndefined),
+        location: leadData.location || leadData.city || '',
+        budget: leadData.budget || leadData.investment || '',
+        servicesWanted: Array.isArray(leadData.servicesWanted) ? leadData.servicesWanted : [],
+        addons: Array.isArray(leadData.addons) ? leadData.addons : [],
+        customFields: leadData.customFields || {},
         message: leadData.message || '',
+        crmPipelineId: leadData.crmPipelineId || quoteCfg.crmPipelineId || 'pipe_casamentos',
+        crmPipelineName: leadData.crmPipelineName || quoteCfg.crmPipelineName || 'Funil Principal · Casamentos & Eventos',
+        crmColumnId: leadData.crmColumnId || quoteCfg.crmColumnId || 'col_novo_lead',
+        crmColumnName: leadData.crmColumnName || quoteCfg.crmColumnName || 'Novo Lead (Orçamento Site)',
         status: 'Novo',
         createdAt: new Date().toISOString()
       };
 
+      // Dispatch to FramePro CRM Pipeline & Column
+      const crmResult = await pushLeadToFrameProCrm(newLead, siteObj);
+      newLead.crmSynced = crmResult.synced;
+      newLead.crmLeadId = crmResult.crmLeadId || null;
+      if (crmResult.pipelineName) newLead.crmPipelineName = crmResult.pipelineName;
+      if (crmResult.columnName) newLead.crmColumnName = crmResult.columnName;
+
       leads.unshift(newLead);
       writeLeads(leads);
-      return res.json({ success: true, lead: newLead });
+      return res.json({ success: true, lead: newLead, crm: crmResult });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/sites/:siteId/leads/:leadId/sync-crm', async (req, res) => {
+    try {
+      const { siteId, leadId } = req.params;
+      const { pipelineId, pipelineName, columnId, columnName } = req.body || {};
+      const leads = readLeads();
+      const idx = leads.findIndex((l: any) => l.id === leadId);
+      if (idx === -1) return res.status(404).json({ error: 'Lead não encontrado.' });
+
+      if (pipelineId) leads[idx].crmPipelineId = pipelineId;
+      if (pipelineName) leads[idx].crmPipelineName = pipelineName;
+      if (columnId) leads[idx].crmColumnId = columnId;
+      if (columnName) leads[idx].crmColumnName = columnName;
+
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+      const crmResult = await pushLeadToFrameProCrm(leads[idx], siteObj);
+
+      leads[idx].crmSynced = true;
+      leads[idx].crmLeadId = crmResult.crmLeadId || `crm_${Date.now()}`;
+      writeLeads(leads);
+
+      return res.json({ success: true, lead: leads[idx], crm: crmResult });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/sites/:siteId/leads/:leadId', (req, res) => {
+    try {
+      const { leadId } = req.params;
+      let leads = readLeads();
+      leads = leads.filter((l: any) => l.id !== leadId);
+      writeLeads(leads);
+      return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }

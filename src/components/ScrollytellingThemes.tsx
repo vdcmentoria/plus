@@ -25,6 +25,7 @@ import {
   Globe,
   X
 } from 'lucide-react';
+import { InteractiveQuoteFormBox, QuoteFormConfig } from './QuoteFormBuilder';
 
 export const OFFICIAL_ASSOCIATION_SEALS = [
   {
@@ -1812,8 +1813,12 @@ function triggerBlockDestination(dest: string, site: any, fallbackWhatsapp?: str
     const text = encodeURIComponent(customMsg);
     window.open(`https://wa.me/${num}?text=${text}`, '_blank', 'noopener,noreferrer');
   } else if (target.startsWith('#')) {
-    const el = document.querySelector(target);
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
+    const clean = target.replace(/^#/, '');
+    const el = document.querySelector(target) ||
+               document.getElementById(`scrolly-sec-${clean}`) ||
+               document.querySelector(`[data-section-id="${clean}"]`) ||
+               document.querySelector(`[data-section-type="${clean}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } else {
     window.open(target, '_blank', 'noopener,noreferrer');
   }
@@ -3842,11 +3847,17 @@ function BlockInteractiveGalleryShowcase({
 function BlockCtaZoomWhatsapp({
   block,
   site,
-  whatsappNumber
+  whatsappNumber,
+  isEditorPreview,
+  onUpdateQuoteConfig,
+  onSelectQuoteTab
 }: {
   block: ScrollySectionBlock;
   site: any;
   whatsappNumber: string;
+  isEditorPreview?: boolean;
+  onUpdateQuoteConfig?: (nextCfg: QuoteFormConfig) => void;
+  onSelectQuoteTab?: () => void;
 }) {
   const ref = useRef<HTMLElement | null>(null);
   const progress = useUniversalScrollProgress(ref, 'enter-exit');
@@ -3869,7 +3880,7 @@ function BlockCtaZoomWhatsapp({
     <section
       ref={ref}
       style={{ fontFamily: bFont }}
-      className="relative h-[90vh] w-full overflow-hidden flex items-center justify-center"
+      className="relative min-h-[95vh] py-20 w-full overflow-hidden flex items-center justify-center"
     >
       <motion.div style={{ scale }} className="absolute inset-0 w-full h-full">
         <MediaSlot
@@ -3880,37 +3891,60 @@ function BlockCtaZoomWhatsapp({
         <div className="absolute inset-0 bg-black" style={{ opacity: overlayDarkness }} />
       </motion.div>
 
-      <div className="relative z-10 max-w-2xl mx-auto px-6 text-center text-white space-y-6">
-        <span className="text-xs uppercase tracking-[0.3em] text-white/80 block">
-          {block.kicker || site?.photographerName}
-        </span>
-        <h2 style={{ fontFamily: hFont }} className={`${titleSizeCls} font-normal leading-tight break-words px-2`}>
-          {block.title}
-        </h2>
-        {block.subtitle && (
-          <p className="text-sm sm:text-base text-white/80 max-w-lg mx-auto">{block.subtitle}</p>
-        )}
-        {block.showButton !== false && (
-          <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={openWhatsApp}
-              style={{ backgroundColor: accent }}
-              className="px-8 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest inline-flex items-center gap-2.5 shadow-2xl hover:scale-105 transition-transform"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span>{block.buttonText || 'Verificar Disponibilidade no WhatsApp'}</span>
-            </button>
-            {block.secondaryButtonText && (
+      <div className="relative z-10 w-full max-w-6xl mx-auto px-4 md:px-6 text-center text-white space-y-8">
+        {(block.kicker || block.title || block.subtitle) &&
+          site?.quoteFormConfig?.layoutPreset !== 'concierge_split' && (
+            <div className="max-w-2xl mx-auto space-y-4">
+              {block.kicker !== '' && (
+                <span className="text-xs uppercase tracking-[0.3em] text-white/80 block">
+                  {block.kicker || site?.photographerName}
+                </span>
+              )}
+              {block.title && (
+                <h2 style={{ fontFamily: hFont }} className={`${titleSizeCls} font-normal leading-tight break-words px-2`}>
+                  {block.title}
+                </h2>
+              )}
+              {block.subtitle && (
+                <p className="text-sm sm:text-base text-white/80 max-w-lg mx-auto">{block.subtitle}</p>
+              )}
+            </div>
+          )}
+
+        {/* Interactive Quote Form Box (Supports Foto 2 Atelier Champagne, Liquid Glass, Drag & Drop, CRM Sync) */}
+        {site?.quoteFormConfig?.enabled !== false ? (
+          <div className="pt-2">
+            <InteractiveQuoteFormBox
+              site={site}
+              isEditorPreview={isEditorPreview}
+              onUpdateConfig={onUpdateQuoteConfig}
+              onSelectQuoteTab={onSelectQuoteTab}
+              defaultWhatsappNumber={whatsappNumber}
+            />
+          </div>
+        ) : (
+          block.showButton !== false && (
+            <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
-                onClick={() => triggerBlockDestination(block.secondaryButtonUrl || '#portfolio', site, whatsappNumber)}
-                className="px-6 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest border border-white/35 bg-black/35 backdrop-blur-md hover:bg-white/15 transition-colors"
+                onClick={openWhatsApp}
+                style={{ backgroundColor: accent }}
+                className="px-8 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest inline-flex items-center gap-2.5 shadow-2xl hover:scale-105 transition-transform"
               >
-                {block.secondaryButtonText}
+                <MessageCircle className="w-4 h-4" />
+                <span>{block.buttonText || 'Verificar Disponibilidade no WhatsApp'}</span>
               </button>
-            )}
-          </div>
+              {block.secondaryButtonText && (
+                <button
+                  type="button"
+                  onClick={() => triggerBlockDestination(block.secondaryButtonUrl || '#portfolio', site, whatsappNumber)}
+                  className="px-6 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest border border-white/35 bg-black/35 backdrop-blur-md hover:bg-white/15 transition-colors"
+                >
+                  {block.secondaryButtonText}
+                </button>
+              )}
+            </div>
+          )
         )}
       </div>
     </section>
@@ -4839,7 +4873,9 @@ export function ModularScrollytellingComposer({
   collections = [],
   onOpenGallery,
   onSelectSection,
-  selectedSectionId
+  selectedSectionId,
+  onUpdateQuoteConfig,
+  onSelectQuoteTab
 }: {
   site: any;
   config: Required<ScrollytellingConfig>;
@@ -4848,6 +4884,8 @@ export function ModularScrollytellingComposer({
   onNavigateSection?: (sec: string) => void;
   onSelectSection?: (secId: string) => void;
   selectedSectionId?: string | null;
+  onUpdateQuoteConfig?: (nextCfg: QuoteFormConfig) => void;
+  onSelectQuoteTab?: () => void;
 }) {
   const composerRef = useRef<HTMLDivElement | null>(null);
 
@@ -4946,6 +4984,9 @@ export function ModularScrollytellingComposer({
                   block={block}
                   site={site}
                   whatsappNumber={config.whatsappNumber}
+                  isEditorPreview={Boolean(onSelectSection)}
+                  onUpdateQuoteConfig={onUpdateQuoteConfig}
+                  onSelectQuoteTab={onSelectQuoteTab}
                 />
               );
           }
@@ -4957,13 +4998,15 @@ export function ModularScrollytellingComposer({
           <div
             key={block.id}
             id={`scrolly-sec-${block.id}`}
+            data-section-id={block.id}
+            data-section-type={block.type}
             onClick={(e) => {
               if (onSelectSection) {
                 e.stopPropagation();
                 onSelectSection(block.id);
               }
             }}
-            className={
+            className={`scroll-mt-20 md:scroll-mt-24 ${
               onSelectSection
                 ? `relative cursor-pointer group/dobra transition-all ${
                     isSelected
@@ -4971,7 +5014,7 @@ export function ModularScrollytellingComposer({
                       : 'hover:ring-2 hover:ring-inset hover:ring-[#D05634]/45'
                   }`
                 : 'relative'
-            }
+            }`}
           >
             {onSelectSection && (
               <div

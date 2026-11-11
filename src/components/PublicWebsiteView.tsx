@@ -39,6 +39,7 @@ import {
   WhatsAppCircularIcon,
   getAssociationSealLogoUrl
 } from './ScrollytellingThemes';
+import { InteractiveQuoteFormBox, QuoteFormConfig } from './QuoteFormBuilder';
 
 export interface SiteData {
   id: string;
@@ -142,6 +143,8 @@ export interface SiteData {
   navCustomOpacity?: number;
   // User Saved Custom Themes (Layout-only, isolated from texts/links/media)
   savedCustomThemes?: SavedLayoutTheme[];
+  // Custom Quote / Orçamento Form Builder & CRM Pipeline Config
+  quoteFormConfig?: QuoteFormConfig;
 }
 
 export interface SavedSectionLayout {
@@ -262,15 +265,18 @@ function SectionWrapper({
   onSelectSection?: (id: string) => void;
   children: React.ReactNode;
 }) {
-  if (!isEditorPreview) return <>{children}</>;
-
   return (
     <div 
+      id={`scrolly-sec-${sectionId}`}
+      data-section-id={sectionId}
+      data-section-type={sectionId}
       onClick={(e) => {
-        e.stopPropagation();
-        if (onSelectSection) onSelectSection(sectionId);
+        if (isEditorPreview && onSelectSection) {
+          e.stopPropagation();
+          onSelectSection(sectionId);
+        }
       }}
-      className="relative cursor-pointer transition-all duration-200"
+      className={`relative scroll-mt-20 md:scroll-mt-24 ${isEditorPreview ? 'cursor-pointer transition-all duration-200' : ''}`}
     >
       {children}
     </div>
@@ -625,7 +631,7 @@ export function PublicWebsiteView({
         setFormSubmitted(true);
         if (typeof window !== 'undefined' && (window as any).fbq) {
           (window as any).fbq('track', 'Lead', {
-            content_name: formEventType || 'GorilaForms Lead',
+            content_name: formEventType || 'Formulário PRO Lead',
             currency: 'BRL'
           });
         }
@@ -694,21 +700,123 @@ export function PublicWebsiteView({
     })
     .filter((item) => item.sec.visible !== false && !item.sec.hideFromNav);
 
-  const handleNavSectionClick = (secId: string, idx: number) => {
+  const findSectionElement = (secId: string, secType?: string) => {
+    if (!secId) return null;
+    const cleanId = secId.toString().trim();
+    
+    // 1. Direct ID matches
+    let el = document.getElementById(`scrolly-sec-${cleanId}`) || 
+             document.getElementById(cleanId) ||
+             document.getElementById(`sec-${cleanId}`);
+    if (el) return el;
+
+    // 2. Data attribute matches
+    el = document.querySelector(`[data-section-id="${cleanId}"]`) ||
+         document.querySelector(`[data-section-type="${cleanId}"]`);
+    if (el) return el;
+
+    if (secType) {
+      el = document.getElementById(`scrolly-sec-${secType}`) ||
+           document.querySelector(`[data-section-type="${secType}"]`);
+      if (el) return el;
+    }
+
+    // 3. Category & Semantic Alias matching
+    const lower = cleanId.toLowerCase();
+
+    // Portfolio / Galerias
+    if (lower.includes('portfoli') || lower.includes('galeri') || lower.includes('trabalho') || lower.includes('obras')) {
+      el = document.getElementById('scrolly-sec-portfolio') ||
+           document.getElementById('scrolly-sec-galleries') ||
+           document.querySelector('[data-section-type="interactive_gallery_showcase"]') ||
+           document.querySelector('[data-section-type="card_stacking_album"]') ||
+           document.querySelector('[data-section-type="bento_zoom_mosaic"]') ||
+           document.querySelector('[data-section-type="floating_masonry_3col"]') ||
+           document.querySelector('[data-section-type="vogue_overlapping_spread"]');
+      if (el) return el;
+    }
+
+    // Sobre / Biografia
+    if (lower.includes('sobr') || lower.includes('about') || lower.includes('biograf') || lower.includes('historia')) {
+      el = document.getElementById('scrolly-sec-about') ||
+           document.querySelector('[data-section-type="sticky_story_split"]') ||
+           document.querySelector('[data-section-type="manifesto_word_reveal"]') ||
+           document.querySelector('[data-section-type="layered_pinning_chapters"]') ||
+           document.querySelector('[data-section-type="darkroom_color_develop"]');
+      if (el) return el;
+    }
+
+    // Contato / Orçamento / Leads
+    if (lower.includes('contat') || lower.includes('orcament') || lower.includes('orçamento') || lower.includes('lead') || lower.includes('agenda')) {
+      el = document.getElementById('scrolly-sec-contact') ||
+           document.getElementById('scrolly-sec-leads') ||
+           document.querySelector('[data-section-type="cta_zoom_whatsapp"]') ||
+           document.querySelector('[data-section-type="leads"]') ||
+           document.querySelector('[data-section-type="custom_footer_section"]');
+      if (el) return el;
+    }
+
+    // Hero / Inicio
+    if (lower.includes('hero') || lower.includes('inicio') || lower.includes('início') || lower.includes('home')) {
+      el = document.getElementById('scrolly-sec-hero') ||
+           document.querySelector('[data-section-type="hero_curtain_reveal"]') ||
+           document.querySelector('[data-section-type="hero_3d_perspective"]') ||
+           document.querySelector('[data-section-type="hero_bipartite_curtain"]');
+      if (el) return el;
+    }
+
+    return null;
+  };
+
+  const handleNavSectionClick = (secId: string, idx: number, secType?: string) => {
     setActiveNav('home');
     setSelectedPost(null);
     setIsMobileMenuOpen(false);
     if (onSelectSection) {
       onSelectSection(secId);
     }
-    setTimeout(() => {
-      const el = document.getElementById(`scrolly-sec-${secId}`);
+    
+    const scrollToTarget = () => {
+      if (idx === 0) {
+        const heroEl = findSectionElement(secId, secType);
+        if (heroEl) {
+          heroEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        return;
+      }
+
+      const el = findSectionElement(secId, secType);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } else if (idx === 0) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
-    }, 30);
+    };
+
+    setTimeout(scrollToTarget, 30);
+    setTimeout(scrollToTarget, 120);
+  };
+
+  const handleNavCtaClick = () => {
+    setActiveNav('home');
+    setSelectedPost(null);
+    setIsMobileMenuOpen(false);
+    
+    const scrollToCta = () => {
+      const ctaEl = findSectionElement('contact', 'cta_zoom_whatsapp') ||
+                    findSectionElement('leads') ||
+                    document.querySelector('[data-section-type="cta_zoom_whatsapp"]') ||
+                    document.querySelector('[data-section-type="leads"]') ||
+                    document.querySelector('[data-section-type="custom_footer_section"]');
+      if (ctaEl) {
+        ctaEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        setActiveNav('contato');
+      }
+    };
+
+    setTimeout(scrollToCta, 30);
+    setTimeout(scrollToCta, 120);
   };
 
   // Dynamic Navigation Header Custom Styles
@@ -788,7 +896,7 @@ export function PublicWebsiteView({
               {navMenuSections.map(({ sec, idx, label }) => (
                 <button
                   key={sec.id}
-                  onClick={() => handleNavSectionClick(sec.id, idx)}
+                  onClick={() => handleNavSectionClick(sec.id, idx, sec.type)}
                   className="hover:opacity-100 transition-all cursor-pointer"
                   style={getNavLinkStyle(activeSection === sec.id)}
                 >
@@ -808,7 +916,7 @@ export function PublicWebsiteView({
 
             <div className="hidden md:flex items-center">
               <button 
-                onClick={() => { setActiveNav('contato'); setSelectedPost(null); }}
+                onClick={handleNavCtaClick}
                 className={`px-5 py-2.5 rounded-xl text-xs shadow-lg transition-transform hover:scale-[1.02] flex items-center gap-2 cursor-pointer ${navTextTransformClass} ${navLetterSpacingClass}`}
                 style={getNavCtaStyle()}
               >
@@ -833,12 +941,12 @@ export function PublicWebsiteView({
           {renderBrand()}
           <nav className={`hidden md:flex items-center gap-8 text-xs font-semibold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
             <button 
-              onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} 
+              onClick={handleNavCtaClick} 
               className={`px-4 py-2 rounded-lg text-xs transition-transform hover:scale-105 ${navTextTransformClass} ${navLetterSpacingClass}`}
               style={getNavCtaStyle()}
             >
@@ -859,7 +967,7 @@ export function PublicWebsiteView({
         >
           <div className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.slice(0, Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
@@ -867,12 +975,12 @@ export function PublicWebsiteView({
           <div>{renderBrand()}</div>
           <div className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.slice(Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
             <button 
-              onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} 
+              onClick={handleNavCtaClick} 
               className={`px-4 py-2 rounded-lg text-xs font-bold shadow-md transition-all ${navTextTransformClass} ${navLetterSpacingClass}`}
               style={getNavCtaStyle()}
             >
@@ -894,12 +1002,12 @@ export function PublicWebsiteView({
           {renderBrand()}
           <nav className={`hidden md:flex items-center gap-10 text-xs font-black ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
             <button 
-              onClick={() => { setActiveNav('contato'); setSelectedPost(null); }} 
+              onClick={handleNavCtaClick} 
               className={`px-5 py-2.5 rounded-full text-xs shadow-lg transition-transform hover:scale-105 ${navTextTransformClass} ${navLetterSpacingClass}`}
               style={getNavCtaStyle()}
             >
@@ -921,13 +1029,13 @@ export function PublicWebsiteView({
           {renderBrand()}
           <nav className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
           </nav>
           <button 
-            onClick={() => { setActiveNav('contato'); setSelectedPost(null); }}
+            onClick={handleNavCtaClick}
             className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer ${navTextTransformClass} ${navLetterSpacingClass}`}
             style={getNavCtaStyle()}
           >
@@ -941,11 +1049,11 @@ export function PublicWebsiteView({
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-40 bg-black/95 backdrop-blur-xl flex flex-col p-8 pt-24 gap-6 text-sm font-bold uppercase tracking-widest text-white">
           {navMenuSections.map(({ sec, idx, label }) => (
-            <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx)}>
+            <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)}>
               {label}
             </button>
           ))}
-          <button onClick={() => { setActiveNav('contato'); setIsMobileMenuOpen(false); }} style={{ color: accentColor }}>
+          <button onClick={handleNavCtaClick} style={{ color: accentColor }}>
             {site.customNavLabels?.cta || 'Solicitar Orçamento'}
           </button>
         </div>
@@ -990,6 +1098,19 @@ export function PublicWebsiteView({
               onNavigateSection={(sec) => setActiveNav(sec as any)}
               onSelectSection={isEditorPreview ? onSelectSection : undefined}
               selectedSectionId={activeSection}
+              onUpdateQuoteConfig={
+                isEditorPreview && onUpdateSite
+                  ? (nextCfg) => {
+                      setSite((prev) => (prev ? { ...prev, quoteFormConfig: nextCfg } : prev));
+                      onUpdateSite({ quoteFormConfig: nextCfg });
+                    }
+                  : undefined
+              }
+              onSelectQuoteTab={
+                isEditorPreview && onSelectSection
+                  ? () => onSelectSection('orcamento')
+                  : undefined
+              }
             />
           </div>
         ) : (
@@ -1566,110 +1687,28 @@ export function PublicWebsiteView({
               </SectionWrapper>
             )}
 
-            {/* GORILAFORMS CONTACT SECTION */}
+            {/* GORILAFORMS & CUSTOM QUOTE BUILDER SECTION */}
             {isVisible('leads') && (activeNav === 'home' || activeNav === 'contato') && (
-              <SectionWrapper sectionId="leads" title="Formulário GorilaForms" isEditorPreview={isEditorPreview} activeSection={activeSection} onSelectSection={onSelectSection}>
-                <section className="max-w-4xl mx-auto px-6 py-20 border-t border-white/5">
-                  <div className="bg-gradient-to-b from-zinc-900 to-black rounded-3xl p-8 md:p-12 border border-white/10 shadow-2xl space-y-8">
-                    <div className="text-center space-y-3">
-                      <span className="text-xs font-bold uppercase tracking-widest" style={{ color: accentColor }}>Contato & Orçamentos</span>
-                      <h2 className="text-3xl md:text-5xl font-black text-white" style={headingStyle}>Verificar Disponibilidade</h2>
-                      <p className="text-zinc-400 text-sm max-w-md mx-auto">
-                        Preencha as informações do seu evento e entraremos em contato rapidamente.
-                      </p>
-                    </div>
-
-                    {formSubmitted ? (
-                      <div className="p-8 rounded-2xl bg-emerald-950/80 border border-emerald-500/30 text-center space-y-4 animate-in zoom-in duration-300">
-                        <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto animate-bounce" />
-                        <h3 className="text-2xl font-black text-white">Solicitação Recebida!</h3>
-                        <p className="text-xs text-emerald-200">Em breve retornaremos o contato por e-mail ou WhatsApp.</p>
-                      </div>
-                    ) : (
-                      <form onSubmit={handleFormSubmit} className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">Nome Completo *</label>
-                            <input 
-                              type="text"
-                              required
-                              value={formName}
-                              onChange={e => setFormName(e.target.value)}
-                              placeholder="Digite seu nome"
-                              className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-white text-sm focus:outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">E-mail *</label>
-                            <input 
-                              type="email"
-                              required
-                              value={formEmail}
-                              onChange={e => setFormEmail(e.target.value)}
-                              placeholder="seu@email.com"
-                              className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-white text-sm focus:outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">WhatsApp / Telefone</label>
-                            <input 
-                              type="tel"
-                              value={formPhone}
-                              onChange={e => setFormPhone(e.target.value)}
-                              placeholder="(00) 00000-0000"
-                              className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-white text-sm focus:outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">Tipo de Evento</label>
-                            <select 
-                              value={formEventType}
-                              onChange={e => setFormEventType(e.target.value)}
-                              className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-white text-sm focus:outline-none"
-                            >
-                              <option value="Casamento">Casamento</option>
-                              <option value="Pré-Wedding">Ensaio Pré-Wedding</option>
-                              <option value="Ensaio de Casal">Ensaio de Casal</option>
-                              <option value="Gestante & Família">Gestante & Família</option>
-                              <option value="Corporativo">Corporativo / Evento</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">Data Prevista</label>
-                            <input 
-                              type="date"
-                              value={formEventDate}
-                              onChange={e => setFormEventDate(e.target.value)}
-                              className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-white text-sm focus:outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">Sua Mensagem</label>
-                          <textarea 
-                            rows={3}
-                            value={formMessage}
-                            onChange={e => setFormMessage(e.target.value)}
-                            placeholder="Conte mais sobre seu casamento, cidade ou ideias para o ensaio..."
-                            className="w-full px-5 py-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-white text-sm focus:outline-none resize-none"
-                          />
-                        </div>
-
-                        <button 
-                          type="submit"
-                          disabled={formSubmitting}
-                          className="w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-white shadow-2xl flex items-center justify-center gap-2"
-                          style={{ backgroundColor: accentColor }}
-                        >
-                          {formSubmitting ? 'Enviando Mensagem...' : 'Enviar Pedido de Orçamento'}
-                        </button>
-                      </form>
-                    )}
-                  </div>
+              <SectionWrapper sectionId="leads" title="Orçamento & Disponibilidade" isEditorPreview={isEditorPreview} activeSection={activeSection} onSelectSection={onSelectSection}>
+                <section className="max-w-6xl mx-auto px-6 py-20 border-t border-white/5">
+                  <InteractiveQuoteFormBox
+                    site={site}
+                    isEditorPreview={isEditorPreview}
+                    onUpdateConfig={
+                      isEditorPreview && onUpdateSite
+                        ? (nextCfg) => {
+                            setSite((prev) => (prev ? { ...prev, quoteFormConfig: nextCfg } : prev));
+                            onUpdateSite({ quoteFormConfig: nextCfg });
+                          }
+                        : undefined
+                    }
+                    onSelectQuoteTab={
+                      isEditorPreview && onSelectSection
+                        ? () => onSelectSection('orcamento')
+                        : undefined
+                    }
+                    defaultWhatsappNumber={site.socialLinks?.whatsapp || ''}
+                  />
                 </section>
               </SectionWrapper>
             )}
