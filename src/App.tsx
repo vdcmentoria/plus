@@ -209,7 +209,27 @@ function Navbar({
   onToggleGlobalTheme?: () => void;
 }) {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [avatarLoadError, setAvatarLoadError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const effectivePhotoUrl = [userProfile?.photoURL, user?.photoURL, userProfile?.avatar_url, user?.avatar_url]
+    .find((u) => typeof u === 'string' && u.trim() !== '' && !u.includes('1472099645785-5658abf4ff4e')) || '';
+
+  const userInitial = (
+    userProfile?.displayName ||
+    user?.displayName ||
+    userProfile?.studioName ||
+    user?.email ||
+    'U'
+  )
+    .toString()
+    .trim()
+    .charAt(0)
+    .toUpperCase() || 'U';
+
+  useEffect(() => {
+    setAvatarLoadError(false);
+  }, [effectivePhotoUrl]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -277,13 +297,19 @@ function Navbar({
           <div className="relative" ref={menuRef}>
             <button 
               onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-              className="w-10 h-10 rounded-full overflow-hidden border border-gray-200"
+              className="w-10 h-10 rounded-full overflow-hidden border border-gray-200 flex items-center justify-center bg-[#FFF0EB] text-[#D05634] font-black text-sm select-none"
             >
-              <img 
-                src={user.photoURL || userProfile?.photoURL || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&q=80"} 
-                alt="User avatar" 
-                className="w-full h-full object-cover"
-              />
+              {effectivePhotoUrl && !avatarLoadError ? (
+                <img 
+                  src={effectivePhotoUrl} 
+                  alt="User avatar" 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={() => setAvatarLoadError(true)}
+                />
+              ) : (
+                <span>{userInitial}</span>
+              )}
             </button>
             
             <AnimatePresence>
@@ -296,7 +322,7 @@ function Navbar({
                 >
                   <div className="pb-4 border-b border-gray-100 mb-4">
                     <div className="flex items-center justify-between">
-                      <p className="font-bold text-gray-900">{user.displayName || userProfile?.displayName || 'Usuário'}</p>
+                      <p className="font-bold text-gray-900">{userProfile?.displayName || user.displayName || 'Usuário'}</p>
                       {isAdmin && (
                         <span className="text-[10px] bg-[#FFF0EB] text-[#D05634] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                           Admin
@@ -306,7 +332,7 @@ function Navbar({
                     <p className="text-gray-500 text-xs truncate mt-0.5">{user.email}</p>
                     <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      SSO FramePro Conectado
+                      Conectado com FramePRO
                     </div>
                   </div>
                   
@@ -646,7 +672,7 @@ function AuthForm({
                 className="w-full flex items-center justify-center gap-2.5 py-3.5 bg-zinc-900 text-white rounded-2xl font-medium text-sm hover:bg-zinc-800 transition-all"
               >
                 <Globe className="w-4 h-4 text-[#D05634]" />
-                Acessar pelo Hub FramePro (SSO)
+                Acessar pelo Hub FramePro
               </a>
             </div>
           </>
@@ -3076,7 +3102,7 @@ function EditorView({
                   <ImageIcon className="w-4 h-4" />
                   Imagem de Capa
                 </h4>
-                <div className="aspect-[3/2] rounded-lg bg-gray-100 overflow-hidden mb-4 border border-gray-200">
+                <div className="aspect-[896/500] rounded-lg bg-gray-100 overflow-hidden mb-4 border border-gray-200">
                   {collection?.image ? (
                     <img 
                       src={collection.image} 
@@ -3842,7 +3868,7 @@ function EditorView({
                 className="w-full max-w-4xl mt-16 shadow-xl rounded-t-2xl border border-gray-200 overflow-y-auto flex flex-col h-[800px] scroll-smooth [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent transition-colors duration-300"
                 style={{ backgroundColor: previewTheme.bg }}
               >
-                <div className="relative w-full h-[500px] bg-gray-100 shrink-0">
+                <div className="relative w-full aspect-[896/500] bg-gray-100 shrink-0">
                   {collection?.image ? (
                     <img 
                       src={collection.image} 
@@ -6308,10 +6334,11 @@ function PublicFolderView({ folder, collections }: { folder: any, collections: a
   return (
     <div className="min-h-screen bg-[#FAFAFA] font-sans">
       {folder.image && (
-        <div className="w-full h-[40vh] relative mb-12 shadow-md">
+        <div className="w-full aspect-[896/500] max-h-[75vh] relative mb-12 shadow-md overflow-hidden">
           <img 
             src={folder.image} 
             className="w-full h-full object-cover" 
+            style={{ objectPosition: `${folder?.coverPositionX ?? 50}% ${folder?.coverPositionY ?? 50}%` }}
           />
           <div className="absolute inset-0 bg-black/50 flex flex-col justify-center items-center px-4 text-center">
             <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 tracking-tight">{folder.title}</h1>
@@ -6342,9 +6369,19 @@ function PublicFolderView({ folder, collections }: { folder: any, collections: a
                >
                  <div className="aspect-[4/3] bg-gray-100 overflow-hidden relative">
                     {col.image ? (
-                       <img src={col.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
+                       <img
+                         src={col.image}
+                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                         style={{ objectPosition: `${col?.coverPositionX ?? 50}% ${col?.coverPositionY ?? 50}%` }}
+                         referrerPolicy="no-referrer"
+                       />
                     ) : col.media && col.media.length > 0 ? (
-                       <img src={col.media[0]} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" referrerPolicy="no-referrer" />
+                       <img
+                         src={col.media[0]}
+                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                         style={{ objectPosition: `${col?.coverPositionX ?? 50}% ${col?.coverPositionY ?? 50}%` }}
+                         referrerPolicy="no-referrer"
+                       />
                     ) : (
                        <div className="w-full h-full flex items-center justify-center text-gray-400">Vazio</div>
                     )}
@@ -7104,7 +7141,7 @@ function PublicGalleryView({ collection, parentFolder, onUpdateCollection }: { c
       )}
       {/* Intro */}
       {collection.image && (
-        <div className="w-full h-[60vh] relative mb-16 shadow-lg">
+        <div className="w-full aspect-[896/500] max-h-[85vh] relative mb-16 shadow-lg overflow-hidden">
           <img 
             src={collection.image} 
             className="w-full h-full object-cover" 
@@ -8388,6 +8425,15 @@ interface ConfiguracoesViewProps {
 }
 
 function ConfiguracoesView({ user, userProfile, onUpdateProfile }: ConfiguracoesViewProps) {
+  const cleanInitialPhoto = [userProfile?.photoURL, user?.photoURL, userProfile?.avatar_url, user?.avatar_url]
+    .find((u) => typeof u === 'string' && u.trim() !== '' && !u.includes('1472099645785-5658abf4ff4e')) || '';
+
+  const [displayName, setDisplayName] = useState(userProfile?.displayName || user?.displayName || '');
+  const [photoURL, setPhotoURL] = useState(cleanInitialPhoto);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarPreviewError, setAvatarPreviewError] = useState(false);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
+
   const [studioName, setStudioName] = useState(userProfile?.studioName || '');
   const [studioPhone, setStudioPhone] = useState(userProfile?.studioPhone || '');
   const [studioEmail, setStudioEmail] = useState(userProfile?.studioEmail || '');
@@ -8410,6 +8456,11 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
   // Sync state if userProfile loaded/changed
   useEffect(() => {
     if (userProfile) {
+      if (userProfile.displayName !== undefined) setDisplayName(userProfile.displayName || user?.displayName || '');
+      const cleanUrl = [userProfile.photoURL, userProfile.avatar_url, user?.photoURL]
+        .find((u) => typeof u === 'string' && u.trim() !== '' && !u.includes('1472099645785-5658abf4ff4e')) || '';
+      setPhotoURL(cleanUrl);
+      setAvatarPreviewError(false);
       if (userProfile.studioName !== undefined) setStudioName(userProfile.studioName || '');
       if (userProfile.studioPhone !== undefined) setStudioPhone(userProfile.studioPhone || '');
       if (userProfile.studioEmail !== undefined) setStudioEmail(userProfile.studioEmail || '');
@@ -8422,7 +8473,47 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
       if (userProfile.cardPublicKey !== undefined) setCardPublicKey(userProfile.cardPublicKey || '');
       if (userProfile.cardSecretKey !== undefined) setCardSecretKey(userProfile.cardSecretKey || '');
     }
-  }, [userProfile]);
+  }, [userProfile, user?.displayName, user?.photoURL]);
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingAvatar(true);
+    try {
+      const optimized = await convertToWebP(file);
+      const formData = new FormData();
+      formData.append('file', optimized);
+      formData.append('collectionId', `avatar_${user?.uid || 'profile'}`);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (!res.ok) throw new Error('Falha ao enviar foto de perfil');
+      const data = await res.json();
+      if (data.url) {
+        setPhotoURL(data.url);
+        setAvatarPreviewError(false);
+        await onUpdateProfile({
+          photoURL: data.url,
+          displayName: displayName || userProfile?.displayName || user?.displayName || ''
+        });
+      }
+    } catch (err) {
+      console.error('Erro ao enviar foto de perfil:', err);
+    } finally {
+      setIsUploadingAvatar(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setPhotoURL('');
+    setAvatarPreviewError(false);
+    await onUpdateProfile({ photoURL: '' });
+  };
+
+  const profileInitial = (displayName || studioName || user?.displayName || user?.email || 'U')
+    .toString()
+    .trim()
+    .charAt(0)
+    .toUpperCase() || 'U';
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -8430,6 +8521,8 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
     setSaveSuccess(false);
     try {
       await onUpdateProfile({
+        displayName,
+        photoURL: photoURL.includes('1472099645785-5658abf4ff4e') ? '' : photoURL,
         studioName,
         studioPhone,
         studioEmail,
@@ -8457,7 +8550,7 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8 border-b border-gray-100 pb-6">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight leading-none mb-2">Configurações Gerais</h1>
-          <p className="text-sm text-gray-500 font-medium font-sans">Defina os dados do estúdio e os canais de recebimento dos gateways de pagamento.</p>
+          <p className="text-sm text-gray-500 font-medium font-sans">Defina sua foto de perfil, os dados do estúdio e os canais de recebimento dos gateways de pagamento.</p>
         </div>
         
         <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200/50 overflow-x-auto max-w-full">
@@ -8489,6 +8582,88 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
         <div className="lg:col-span-2 space-y-6">
           {activeSubTab === 'profile' ? (
             <div className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-6 animate-in fade-in duration-200">
+              {/* Foto de Perfil & Nome de Usuário */}
+              <div className="border-b border-gray-100 pb-6">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-1">
+                  <Users className="w-5 h-5 text-[#D05634]" /> Foto de Perfil & Identificação
+                </h3>
+                <p className="text-xs text-gray-400 mb-5">
+                  Sua foto é sincronizada automaticamente com o FramePRO CRM ou pode ser personalizada abaixo. Sem foto, exibimos a inicial do seu nome.
+                </p>
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+                  <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-[#D05634]/20 bg-[#FFF0EB] text-[#D05634] flex items-center justify-center font-black text-2xl shrink-0 shadow-sm select-none">
+                    {photoURL && !avatarPreviewError ? (
+                      <img
+                        src={photoURL}
+                        alt="Foto de perfil"
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                        onError={() => setAvatarPreviewError(true)}
+                      />
+                    ) : (
+                      <span>{profileInitial}</span>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-3 w-full">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <input
+                        ref={avatarFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarUpload}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        disabled={isUploadingAvatar}
+                        onClick={() => avatarFileInputRef.current?.click()}
+                        className="px-4 py-2 bg-[#D05634] hover:bg-[#b84a2b] text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {isUploadingAvatar ? 'Enviando foto...' : 'Alterar Foto de Perfil'}
+                      </button>
+                      {photoURL && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveAvatar}
+                          className="px-3.5 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          Usar Apenas Inicial ({profileInitial})
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome de Exibição</label>
+                        <input
+                          type="text"
+                          value={displayName}
+                          onChange={(e) => setDisplayName(e.target.value)}
+                          placeholder="Seu nome"
+                          className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-100 focus:border-[#D05634] focus:bg-white rounded-xl text-xs font-medium outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">URL da Foto (Opcional)</label>
+                        <input
+                          type="url"
+                          value={photoURL}
+                          onChange={(e) => {
+                            setPhotoURL(e.target.value);
+                            setAvatarPreviewError(false);
+                          }}
+                          placeholder="https://..."
+                          className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-100 focus:border-[#D05634] focus:bg-white rounded-xl text-xs font-medium outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="border-b border-gray-100 pb-4">
                 <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                    <Database className="w-5 h-5 text-[#D05634]" /> Dados do Estúdio
@@ -8866,11 +9041,13 @@ export default function App() {
 
   const handleAuthSuccess = (authenticatedUser: any) => {
     if (!authenticatedUser) return;
+    const rawPhoto = authenticatedUser.photoURL || authenticatedUser.avatar_url || authenticatedUser.avatarUrl || '';
+    const cleanPhoto = typeof rawPhoto === 'string' && !rawPhoto.includes('1472099645785-5658abf4ff4e') ? rawPhoto : '';
     const normalized = {
       ...authenticatedUser,
       uid: authenticatedUser.uid || authenticatedUser.id,
       displayName: authenticatedUser.displayName || authenticatedUser.name || authenticatedUser.email?.split('@')[0] || 'Fotógrafo',
-      photoURL: authenticatedUser.photoURL || authenticatedUser.avatar_url || ''
+      photoURL: cleanPhoto
     };
     try {
       localStorage.setItem('frameplus_sso_session', JSON.stringify(normalized));
@@ -8912,6 +9089,9 @@ export default function App() {
         const response = await fetch(`/api/users/${user.uid}`);
         if (response.ok) {
           const data = await response.json();
+          if (data && typeof data.photoURL === 'string' && data.photoURL.includes('1472099645785-5658abf4ff4e')) {
+            data.photoURL = '';
+          }
           setUserProfile(data);
           // Sync latest profile fields back to local session if SSO
           try {
@@ -8937,6 +9117,13 @@ export default function App() {
     try {
       const merged = { ...(userProfile || {}), ...updates, uid: user.uid };
       setUserProfile(merged);
+      if (updates.photoURL !== undefined || updates.displayName !== undefined) {
+        setUser((prev: any) => prev ? {
+          ...prev,
+          ...(updates.photoURL !== undefined ? { photoURL: updates.photoURL } : {}),
+          ...(updates.displayName !== undefined ? { displayName: updates.displayName } : {}),
+        } : prev);
+      }
       try {
         const saved = localStorage.getItem('frameplus_sso_session');
         if (saved) {
@@ -9103,6 +9290,7 @@ export default function App() {
                 const directData = await directRes.json();
                 if (directData && directData.valid && directData.user) {
                   const crmU = directData.user;
+                  const crmAvatar = crmU.avatar_url || crmU.avatarUrl || crmU.photoURL || crmU.photo_url || crmU.avatar || '';
                   const syncRes = await fetch(`/api/users/${crmU.id}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -9110,18 +9298,19 @@ export default function App() {
                       uid: crmU.id,
                       crmId: crmU.id,
                       email: crmU.email,
-                      displayName: crmU.name || crmU.email?.split('@')[0],
-                      photoURL: crmU.avatar_url || '',
+                      displayName: crmU.name || crmU.full_name || crmU.email?.split('@')[0],
+                      photoURL: crmAvatar,
                       role: crmU.role || 'user',
-                      crmPlan: crmU.plan || ''
+                      crmPlan: crmU.plan || '',
+                      sso_origin: ssoOrigin || 'https://crm.framepro.click'
                     })
                   });
                   verifiedUser = syncRes.ok ? await syncRes.json() : {
                     uid: crmU.id,
                     crmId: crmU.id,
                     email: crmU.email,
-                    displayName: crmU.name || crmU.email?.split('@')[0],
-                    photoURL: crmU.avatar_url || '',
+                    displayName: crmU.name || crmU.full_name || crmU.email?.split('@')[0],
+                    photoURL: crmAvatar,
                     role: crmU.role || 'user'
                   };
                 }
@@ -9223,16 +9412,16 @@ export default function App() {
     };
   }, []);
 
-  // 2. Collections Loader
+  // 2. Collections Loader (Strict ownership: new accounts start with 0 galleries)
   useEffect(() => {
     if (!isAuthInited || !user || isPublicView) return;
 
     const fetchCollections = async () => {
       try {
-        const response = await fetch('/api/collections');
+        const response = await fetch(`/api/collections?ownerId=${encodeURIComponent(user.uid)}`);
         if (response.ok) {
           const list = await response.json();
-          // Match collections belonging to this user by uid or crmId
+          // Match collections strictly belonging to this user by uid or crmId (never include unowned or default templates)
           const validIds = new Set(
             [user.uid, user.crmId, userProfile?.uid, userProfile?.crmId]
               .filter(Boolean)
@@ -9240,8 +9429,8 @@ export default function App() {
           );
           const owned = list.filter(
             (c: any) =>
-              !c.ownerId ||
-              c.ownerId === 'default' ||
+              Boolean(c.ownerId) &&
+              c.ownerId !== 'default' &&
               validIds.has(c.ownerId.toString().toLowerCase().trim())
           );
           setCollectionsState(owned);
@@ -9535,52 +9724,75 @@ export default function App() {
     });
   }, [collectionsState, currentCollectionId, gallerySlug, isPublicView]);
 
+  const collectionsLatestRef = useRef<any[] | null>(null);
+  useEffect(() => {
+    collectionsLatestRef.current = collectionsState;
+  }, [collectionsState]);
+  const saveCollectionTimersRef = useRef<Record<string, any>>({});
+
   const updateCollection = async (id: any, updates: any) => {
     const idStr = id.toString();
+    let updatedFullObj: any = null;
     
-    // Always update locally for instant UI responsiveness
+    // Always update locally for instant UI responsiveness and capture latest merged object
     setCollectionsState((prev: any[] | null) => {
       if (!prev) return prev;
-      return prev.map((c: any) => {
+      const next = prev.map((c: any) => {
         if (c.id.toString() === idStr) {
           const merged = { ...c, ...updates, _mediaLoaded: true };
+          if (user?.uid && !merged.ownerId) {
+            merged.ownerId = user.uid;
+          }
           // Keep primary cover thumbnail if empty and media has items
           if ('media' in updates && Array.isArray(updates.media) && updates.media.length > 0 && !merged.image) {
             merged.image = updates.media[0];
           }
+          updatedFullObj = merged;
           return merged;
         }
         return c;
       });
+      collectionsLatestRef.current = next;
+      return next;
     });
 
-    try {
-      const currentArr = collectionsState || [];
+    if (!updatedFullObj) {
+      const currentArr = collectionsLatestRef.current || collectionsState || [];
       const activeColl = currentArr.find((c: any) => c.id.toString() === idStr);
-      const fullCollObj = {
+      updatedFullObj = {
         ...(activeColl || {}),
         ...updates,
         id: idStr
       };
-      if (user?.uid && !fullCollObj.ownerId) {
-        fullCollObj.ownerId = user.uid;
+      if (user?.uid && !updatedFullObj.ownerId) {
+        updatedFullObj.ownerId = user.uid;
       }
-      // Keep primary cover thumbnail if empty and media has items
-      if ('media' in updates && Array.isArray(updates.media) && updates.media.length > 0 && !fullCollObj.image) {
-        fullCollObj.image = updates.media[0];
+      if ('media' in updates && Array.isArray(updates.media) && updates.media.length > 0 && !updatedFullObj.image) {
+        updatedFullObj.image = updates.media[0];
       }
-
-      const response = await fetch('/api/collections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullCollObj)
-      });
-      if (!response.ok) {
-        throw new Error("HTTP error saving to API JSON DB");
-      }
-    } catch (err) {
-      console.error("updateCollection server sync failed:", err);
     }
+
+    if (saveCollectionTimersRef.current[idStr]) {
+      clearTimeout(saveCollectionTimersRef.current[idStr]);
+    }
+
+    const payloadToSave = { ...updatedFullObj };
+    saveCollectionTimersRef.current[idStr] = setTimeout(async () => {
+      try {
+        const latestFromRef = (collectionsLatestRef.current || []).find((c: any) => c.id.toString() === idStr);
+        const finalBody = latestFromRef ? { ...latestFromRef, id: idStr } : payloadToSave;
+        const response = await fetch('/api/collections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalBody)
+        });
+        if (!response.ok) {
+          throw new Error("HTTP error saving to API JSON DB");
+        }
+      } catch (err) {
+        console.error("updateCollection server sync failed:", err);
+      }
+    }, 150);
   };
 
   if (!isFirestoreAvailable && (collectionsState === null || (isInitialized && collectionsState.length === 0))) {

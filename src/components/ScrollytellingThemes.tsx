@@ -3581,6 +3581,7 @@ function BlockInteractiveGalleryShowcase({
                     src={item.url}
                     alt={item.caption}
                     className={`w-full h-full object-cover ${imgHoverClass}`}
+                    style={{ objectPosition: `${item.rawCollection?.coverPositionX ?? 50}% ${item.rawCollection?.coverPositionY ?? 50}%` }}
                   />
 
                   {/* Association Seals Badges */}
@@ -3687,6 +3688,7 @@ function BlockInteractiveGalleryShowcase({
                     src={item.url}
                     alt={item.caption}
                     className={`w-full h-full object-cover ${imgHoverClass}`}
+                    style={{ objectPosition: `${item.rawCollection?.coverPositionX ?? 50}% ${item.rawCollection?.coverPositionY ?? 50}%` }}
                   />
                   {isOverlay && (
                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent p-4 flex flex-col justify-end text-white">
@@ -3733,6 +3735,7 @@ function BlockInteractiveGalleryShowcase({
                     src={item.url}
                     alt={item.caption}
                     className={`w-full h-full object-cover ${imgHoverClass}`}
+                    style={{ objectPosition: `${item.rawCollection?.coverPositionX ?? 50}% ${item.rawCollection?.coverPositionY ?? 50}%` }}
                   />
                   {showBtn && (
                     <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider text-white border border-white/20">
@@ -3772,6 +3775,7 @@ function BlockInteractiveGalleryShowcase({
                     src={item.url}
                     alt={item.caption}
                     className={`w-full h-full object-cover ${imgHoverClass}`}
+                    style={{ objectPosition: `${item.rawCollection?.coverPositionX ?? 50}% ${item.rawCollection?.coverPositionY ?? 50}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between">
@@ -3804,6 +3808,7 @@ function BlockInteractiveGalleryShowcase({
                   src={item.url}
                   alt={item.caption}
                   className={`w-full h-full object-cover ${imgHoverClass}`}
+                  style={{ objectPosition: `${item.rawCollection?.coverPositionX ?? 50}% ${item.rawCollection?.coverPositionY ?? 50}%` }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
                 <div className="absolute bottom-8 inset-x-8 flex items-end justify-between text-white">

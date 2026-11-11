@@ -42,53 +42,8 @@ async function startServer() {
   const blogsFile = path.join(dataDir, 'blogs.json');
   const leadsFile = path.join(dataDir, 'leads.json');
 
-  // Seeds
-  const initialCollections = [
-    {
-      id: "1",
-      title: "Isabel Machado",
-      date: "01/05/2026",
-      status: "Público",
-      image: null,
-      type: "collection",
-      slug: "isabel-machado",
-      media: []
-    },
-    {
-      id: "2",
-      title: "Gabriela e Lucas Casamento",
-      date: "16/05/2026",
-      status: "Público",
-      tags: ["Loja"],
-      image: "https://images.unsplash.com/photo-1544928147-79a2dbc1f389?auto=format&fit=crop&w=600&q=80",
-      slug: "gabriela-e-lucas",
-      type: "collection",
-      media: [
-        "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1544928147-79a2dbc1f389?auto=format&fit=crop&w=800&q=80"
-      ]
-    },
-    {
-      id: "3",
-      title: "Gabriela e Lucas",
-      date: "16/05/2026",
-      status: "Pública",
-      tags: ["Pasta"],
-      image: "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=600&q=80",
-      slug: "gabriela-e-lucas-folder",
-      type: "folder"
-    },
-    {
-      id: "4",
-      title: "Videos",
-      date: "23/04/2026",
-      status: "Público",
-      image: null,
-      type: "collection",
-      media: []
-    }
-  ];
+  // Seeds (new accounts start with 0 galleries)
+  const initialCollections: any[] = [];
 
   // Initialize DB files if not exist
   if (!fs.existsSync(dataDir)) {
@@ -201,7 +156,15 @@ async function startServer() {
   function readCollections() {
     try {
       if (fs.existsSync(collectionsFile)) {
-        return JSON.parse(fs.readFileSync(collectionsFile, 'utf8'));
+        const parsed = JSON.parse(fs.readFileSync(collectionsFile, 'utf8'));
+        if (!Array.isArray(parsed)) return [];
+        // Filter out legacy unowned seed templates ("1", "2", "3", "4") that have no ownerId
+        return parsed.filter((c: any) => {
+          const isLegacySeedId = ['1', '2', '3', '4'].includes(String(c?.id));
+          const hasOwner = Boolean(c?.ownerId && c.ownerId !== 'default');
+          if (isLegacySeedId && !hasOwner) return false;
+          return true;
+        });
       }
     } catch (e) {
       console.error('Error reading collections:', e);
@@ -447,8 +410,9 @@ async function startServer() {
       let collections = readCollections();
 
       if (ownerId && ownerId !== 'default') {
+        const cleanOwner = ownerId.toLowerCase().trim();
         collections = collections.filter(
-          (c: any) => !c.ownerId || c.ownerId === 'default' || c.ownerId === ownerId
+          (c: any) => Boolean(c.ownerId) && c.ownerId !== 'default' && c.ownerId.toString().toLowerCase().trim() === cleanOwner
         );
       }
       return res.json(collections);
@@ -738,13 +702,16 @@ async function startServer() {
       storageLimitGB = getPlanStorageLimitGB(planName);
     }
 
+    const cleanCrmAvatar = sanitizeAvatarUrl(crmUser.avatar_url);
+    const cleanExistingAvatar = sanitizeAvatarUrl(existing.photoURL);
+
     const updatedUser = {
       ...existing,
       uid,
       crmId: crmUser.id || existing.crmId || uid,
       email: mergedEmail,
       displayName: crmUser.name || existing.displayName || mergedEmail.split('@')[0] || 'Fotógrafo',
-      photoURL: crmUser.avatar_url || existing.photoURL || '',
+      photoURL: cleanCrmAvatar || cleanExistingAvatar || '',
       crmPlan: crmUser.plan || existing.crmPlan || '',
       role,
       isAdmin,
@@ -762,17 +729,186 @@ async function startServer() {
     return updatedUser;
   }
 
-  app.get('/api/users/:uid', (req, res) => {
+  // ==========================================================
+  // FRAMEPRO UNIFIED LOGIN & SSO ENDPOINTS + AVATAR HELPERS
+  // ==========================================================
+  const CRM_DEFAULT_ORIGIN = process.env.FRAMEPRO_CRM_URL || 'https://crm.framepro.click';
+  const CRM_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE3ODgzMzI0ODAsImV4cCI6MTk0NjAxMjQ4MH0.3CSAfSwSgm2h0ugWQYE6GZGGcL937OA3u3fZ-QMkMao';
+
+  function sanitizeAvatarUrl(url?: string, originUrl: string = CRM_DEFAULT_ORIGIN): string {
+    if (!url || typeof url !== 'string') return '';
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return '';
+    // Never use the legacy random Unsplash placeholder
+    if (trimmed.includes('1472099645785-5658abf4ff4e')) return '';
+    if (trimmed.startsWith('data:') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('/')) {
+      return `${originUrl.replace(/\/+$/, '')}${trimmed}`;
+    }
+    return trimmed;
+  }
+
+  function extractCrmAvatarFromObject(obj: any, originUrl: string = CRM_DEFAULT_ORIGIN): string {
+    if (!obj || typeof obj !== 'object') return '';
+    const candidates = [
+      obj.avatar_url,
+      obj.avatarUrl,
+      obj.photoURL,
+      obj.photo_url,
+      obj.avatar,
+      obj.picture,
+      obj.image,
+      obj.profile_photo_url,
+      obj.profile_image,
+      obj.logo_url,
+      obj.logoUrl,
+      obj.user_metadata?.avatar_url,
+      obj.user_metadata?.avatarUrl,
+      obj.user_metadata?.photoURL,
+      obj.user_metadata?.picture,
+      obj.user_metadata?.avatar,
+      obj.profile?.avatar_url,
+      obj.profile?.avatarUrl,
+      obj.profile?.photoURL,
+      obj.profile?.photo_url,
+      obj.profile?.avatar,
+      obj.profile?.logo_url
+    ];
+    for (const c of candidates) {
+      const clean = sanitizeAvatarUrl(c, originUrl);
+      if (clean) return clean;
+    }
+    return '';
+  }
+
+  async function enrichCrmUserProfile(
+    baseUser: any,
+    accessToken?: string,
+    origins: string[] = [CRM_DEFAULT_ORIGIN]
+  ): Promise<any> {
+    if (!baseUser) return baseUser;
+    const userId = baseUser.id || baseUser.uid || baseUser.crmId || '';
+    const userEmail = baseUser.email || '';
+    let resolvedAvatar = extractCrmAvatarFromObject(baseUser, origins[0] || CRM_DEFAULT_ORIGIN);
+    let resolvedName = baseUser.name || baseUser.full_name || baseUser.displayName || '';
+    let resolvedPlan = baseUser.plan || baseUser.crmPlan || '';
+    let resolvedRole = baseUser.role || '';
+
+    for (const origin of origins) {
+      // 1. Try /api/auth/profile/:id on CRM
+      if (userId) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3000);
+          const profRes = await fetch(`${origin}/api/auth/profile/${encodeURIComponent(userId)}`, {
+            headers: {
+              ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+              'x-user-id': String(userId),
+              'x-user-email': String(userEmail)
+            },
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+          if (profRes.ok) {
+            const pJson: any = await profRes.json();
+            const prof = pJson?.profile || pJson?.user || pJson || {};
+            const profAvatar = extractCrmAvatarFromObject(prof, origin);
+            if (profAvatar) resolvedAvatar = profAvatar;
+            if (!resolvedName && (prof.name || prof.full_name || prof.studio_name)) {
+              resolvedName = prof.name || prof.full_name || prof.studio_name;
+            }
+            if (!resolvedPlan && prof.plan) resolvedPlan = prof.plan;
+            if ((!resolvedRole || resolvedRole === 'user') && prof.role) resolvedRole = prof.role;
+          }
+        } catch {}
+      }
+
+      // 2. If still no avatar, try Supabase REST /rest/v1/profiles on CRM
+      if (!resolvedAvatar && (userId || userEmail)) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2500);
+          const queryFilter = userId
+            ? `id=eq.${encodeURIComponent(userId)}`
+            : `email=eq.${encodeURIComponent(userEmail)}`;
+          const restRes = await fetch(`${origin}/rest/v1/profiles?${queryFilter}&select=*`, {
+            headers: {
+              'apikey': CRM_SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${accessToken || CRM_SUPABASE_ANON_KEY}`
+            },
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+          if (restRes.ok) {
+            const rows: any = await restRes.json();
+            if (Array.isArray(rows) && rows.length > 0) {
+              const row = rows[0];
+              const rowAvatar = extractCrmAvatarFromObject(row, origin);
+              if (rowAvatar) resolvedAvatar = rowAvatar;
+              if (!resolvedName && (row.name || row.full_name)) {
+                resolvedName = row.name || row.full_name;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      if (resolvedAvatar) break;
+    }
+
+    return {
+      ...baseUser,
+      id: userId || baseUser.id,
+      email: userEmail,
+      name: resolvedName || baseUser.name || '',
+      plan: resolvedPlan || baseUser.plan || '',
+      role: resolvedRole || baseUser.role || 'user',
+      avatar_url: resolvedAvatar || sanitizeAvatarUrl(baseUser.avatar_url)
+    };
+  }
+
+  app.get('/api/users/:uid', async (req, res) => {
     try {
       const uid = req.params.uid;
       const users = readUsers();
       const found = findExistingUser(users, uid, uid);
-      const existing = found ? found.record : null;
+      let existing = found ? found.record : null;
+
+      if (existing) {
+        // Clean legacy random placeholder if it was stored previously
+        const cleanedPhoto = sanitizeAvatarUrl(existing.photoURL);
+        let changed = cleanedPhoto !== (existing.photoURL || '');
+        existing.photoURL = cleanedPhoto;
+
+        // If user has no photo yet and is linked to FramePro CRM, try pulling their CRM photo
+        if (!existing.photoURL && (existing.crmId || existing.email)) {
+          try {
+            const enriched = await enrichCrmUserProfile({
+              id: existing.crmId || existing.uid,
+              email: existing.email,
+              name: existing.displayName
+            });
+            if (enriched.avatar_url) {
+              existing.photoURL = enriched.avatar_url;
+              changed = true;
+            }
+          } catch {}
+        }
+
+        if (changed && found) {
+          users[found.key] = existing;
+          writeUsers(users);
+        }
+      }
+
       const email = existing?.email || '';
       const isAdmin = existing?.role === 'admin' || existing?.isAdmin === true || isMasterAdminEmail(email);
 
       const profile = existing ? {
         ...existing,
+        photoURL: sanitizeAvatarUrl(existing.photoURL),
         role: isAdmin ? 'admin' : (existing.role || 'user'),
         isAdmin,
         storageLimitGB: existing.storageLimitGB || existing.storageGB || 3,
@@ -824,9 +960,12 @@ async function startServer() {
         storageLimitGB = getPlanStorageLimitGB(planName);
       }
 
+      const incomingPhoto = data.photoURL !== undefined ? sanitizeAvatarUrl(data.photoURL) : sanitizeAvatarUrl(existing.photoURL);
+
       users[uid] = {
         ...existing,
         ...data,
+        photoURL: incomingPhoto,
         uid,
         role,
         isAdmin,
@@ -843,12 +982,6 @@ async function startServer() {
       return res.status(500).json({ error: err.message });
     }
   });
-
-  // ==========================================================
-  // FRAMEPRO UNIFIED LOGIN & SSO ENDPOINTS
-  // ==========================================================
-  const CRM_DEFAULT_ORIGIN = process.env.FRAMEPRO_CRM_URL || 'https://crm.framepro.click';
-  const CRM_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE3ODgzMzI0ODAsImV4cCI6MTk0NjAxMjQ4MH0.3CSAfSwSgm2h0ugWQYE6GZGGcL937OA3u3fZ-QMkMao';
 
   function parseCookies(cookieHeader?: string): Record<string, string> {
     const list: Record<string, string> = {};
@@ -942,7 +1075,13 @@ async function startServer() {
             if (verifyRes.ok) {
               const data: any = await verifyRes.json();
               if (data && (data.valid || data.user) && data.user) {
-                verifiedCrmUser = data.user;
+                verifiedCrmUser = {
+                  ...data.user,
+                  avatar_url: extractCrmAvatarFromObject(data.user, origin) || extractCrmAvatarFromObject(data, origin)
+                };
+                if (!finalAccessToken && (data.access_token || data.session?.access_token)) {
+                  finalAccessToken = data.access_token || data.session?.access_token;
+                }
                 verifySource = data.source || 'sso_ticket';
                 break;
               }
@@ -968,7 +1107,10 @@ async function startServer() {
             if (verifyRes.ok) {
               const data: any = await verifyRes.json();
               if (data && (data.valid || data.user) && data.user) {
-                verifiedCrmUser = data.user;
+                verifiedCrmUser = {
+                  ...data.user,
+                  avatar_url: extractCrmAvatarFromObject(data.user, origin) || extractCrmAvatarFromObject(data, origin)
+                };
                 verifySource = data.source || 'sso_bearer';
                 break;
               }
@@ -992,28 +1134,13 @@ async function startServer() {
             if (userRes.ok) {
               const goTrueUser: any = await userRes.json();
               if (goTrueUser && goTrueUser.id) {
-                let profileData: any = {};
-                try {
-                  const profRes = await fetch(`${origin}/api/auth/profile/${goTrueUser.id}`, {
-                    headers: {
-                      'Authorization': `Bearer ${finalAccessToken}`,
-                      'x-user-id': goTrueUser.id,
-                      'x-user-email': goTrueUser.email || ''
-                    }
-                  });
-                  if (profRes.ok) {
-                    const pJson: any = await profRes.json();
-                    profileData = pJson?.profile || pJson || {};
-                  }
-                } catch {}
-
                 verifiedCrmUser = {
                   id: goTrueUser.id,
-                  email: profileData.email || goTrueUser.email,
-                  name: profileData.name || profileData.full_name || goTrueUser.user_metadata?.full_name || goTrueUser.user_metadata?.name || '',
-                  plan: profileData.plan || goTrueUser.user_metadata?.plan || '',
-                  role: profileData.role || goTrueUser.user_metadata?.role || 'user',
-                  avatar_url: profileData.avatar_url || goTrueUser.user_metadata?.avatar_url || ''
+                  email: goTrueUser.email,
+                  name: goTrueUser.user_metadata?.full_name || goTrueUser.user_metadata?.name || '',
+                  plan: goTrueUser.user_metadata?.plan || '',
+                  role: goTrueUser.user_metadata?.role || 'user',
+                  avatar_url: extractCrmAvatarFromObject(goTrueUser, origin)
                 };
                 verifySource = 'gotrue_jwt';
                 break;
@@ -1031,30 +1158,13 @@ async function startServer() {
         if (payload && payload.sub && payload.email) {
           const isExpired = payload.exp && (payload.exp * 1000 < Date.now());
           if (!isExpired) {
-            let profileData: any = {};
-            for (const origin of candidateOrigins) {
-              try {
-                const profRes = await fetch(`${origin}/api/auth/profile/${payload.sub}`, {
-                  headers: {
-                    'Authorization': `Bearer ${finalAccessToken}`,
-                    'x-user-id': payload.sub,
-                    'x-user-email': payload.email
-                  }
-                });
-                if (profRes.ok) {
-                  const pJson: any = await profRes.json();
-                  profileData = pJson?.profile || pJson || {};
-                  break;
-                }
-              } catch {}
-            }
             verifiedCrmUser = {
               id: payload.sub,
-              email: profileData.email || payload.email,
-              name: profileData.name || profileData.full_name || payload.user_metadata?.full_name || payload.user_metadata?.name || '',
-              plan: profileData.plan || payload.user_metadata?.plan || '',
-              role: profileData.role || payload.user_metadata?.role || 'user',
-              avatar_url: profileData.avatar_url || payload.user_metadata?.avatar_url || ''
+              email: payload.email,
+              name: payload.user_metadata?.full_name || payload.user_metadata?.name || '',
+              plan: payload.user_metadata?.plan || '',
+              role: payload.user_metadata?.role || 'user',
+              avatar_url: extractCrmAvatarFromObject(payload, candidateOrigins[0] || CRM_DEFAULT_ORIGIN)
             };
             verifySource = 'jwt_payload';
           }
@@ -1067,6 +1177,9 @@ async function startServer() {
           error: 'Ticket ou token SSO inválido ou expirado.'
         });
       }
+
+      // Always enrich verifiedCrmUser with full CRM profile (pulls exact avatar_url from CRM)
+      verifiedCrmUser = await enrichCrmUserProfile(verifiedCrmUser, finalAccessToken, candidateOrigins);
 
       // Ensure or update the photographer account in FramePlus database
       const framePlusUser = syncOrEnsureFrameProUser(verifiedCrmUser);
@@ -1118,33 +1231,18 @@ async function startServer() {
       }
 
       const rawUser = data.user || data.session?.user || {};
-      let rawProfile = data.profile || {};
+      const rawProfile = data.profile || {};
 
-      // Fetch full CRM profile if not embedded in login response
-      if (!rawProfile.id && rawUser.id && data.session?.access_token) {
-        try {
-          const profRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/profile/${rawUser.id}`, {
-            headers: {
-              'Authorization': `Bearer ${data.session.access_token}`,
-              'x-user-id': rawUser.id,
-              'x-user-email': cleanEmail
-            }
-          });
-          if (profRes.ok) {
-            const pJson: any = await profRes.json();
-            rawProfile = pJson?.profile || pJson || {};
-          }
-        } catch {}
-      }
-
-      const crmUser = {
+      let crmUser = {
         id: rawProfile.id || rawUser.id,
         email: rawProfile.email || rawUser.email || cleanEmail,
         name: rawProfile.name || rawProfile.full_name || rawUser.user_metadata?.full_name || rawUser.user_metadata?.name || '',
         plan: rawProfile.plan || rawUser.user_metadata?.plan || '',
         role: rawProfile.role || rawUser.user_metadata?.role || 'user',
-        avatar_url: rawProfile.avatar_url || rawUser.user_metadata?.avatar_url || ''
+        avatar_url: extractCrmAvatarFromObject(rawProfile) || extractCrmAvatarFromObject(rawUser) || extractCrmAvatarFromObject(data)
       };
+
+      crmUser = await enrichCrmUserProfile(crmUser, data.session?.access_token, [CRM_DEFAULT_ORIGIN]);
 
       const framePlusUser = syncOrEnsureFrameProUser(crmUser);
 
