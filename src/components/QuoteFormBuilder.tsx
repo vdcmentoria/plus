@@ -1275,8 +1275,8 @@ export function QuoteBuilderDrawerPanel({
   onUpdateQuoteSection?: (patch: { primaryImage?: string; overlayOpacity?: number }) => void;
 }) {
   const cfg = resolveQuoteFormConfig(siteData);
-  const [openMenu, setOpenMenu] = useState<'crm' | 'layout' | null>('crm');
-  const [subTab, setSubTab] = useState<'layouts' | 'caixa' | 'campos'>('layouts');
+  const [openMenu, setOpenMenu] = useState<'crm' | 'layout' | 'box' | null>('crm');
+  const [subTab, setSubTab] = useState<'layouts' | 'caixa'>('layouts');
   const [expandedFieldId, setExpandedFieldId] = useState<string | null>(cfg.fields[0]?.id || null);
   const [newOptionInputs, setNewOptionInputs] = useState<Record<string, string>>({});
   const [uploadingBg, setUploadingBg] = useState(false);
@@ -1477,39 +1477,29 @@ export function QuoteBuilderDrawerPanel({
   return (
     <div className="space-y-2.5">
       {/* ====================================================================
-          MENU DROPDOWN 1: CONEXÃO CRM
+          MENU DROPDOWN 1: CONEXÃO CRM (DESIGN DE FOTO 2)
           ==================================================================== */}
-      <div
-        className={`rounded-2xl border overflow-hidden transition-all ${
-          isDarkShell ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white border-gray-200 shadow-sm'
-        }`}
-      >
+      <div className="transition-all">
         <button
           type="button"
           onClick={() => setOpenMenu((prev) => (prev === 'crm' ? null : 'crm'))}
-          className={`w-full px-3.5 py-3 flex items-center justify-between text-left transition-colors cursor-pointer ${
-            isDarkShell ? 'hover:bg-zinc-900' : 'hover:bg-gray-50'
+          className={`group w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-left transition-colors cursor-pointer ${
+            isDarkShell ? 'hover:bg-zinc-800/60' : 'hover:bg-gray-100'
           }`}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-xl bg-[#D05634]/15 text-[#D05634] flex items-center justify-center shrink-0">
-              <FolderKanban className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className={`text-xs font-black uppercase tracking-wider ${isDarkShell ? 'text-white' : 'text-gray-900'}`}>
-                  CONEXÃO CRM
-                </span>
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    cfg.crmIntegrationEnabled !== false ? 'bg-emerald-500' : 'bg-gray-400'
-                  }`}
-                />
-              </div>
-              <span className="block text-[10px] text-gray-500 dark:text-zinc-400 truncate">
-                {activePipeline.name} → {activeColumn.name}
-              </span>
-            </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs font-bold tracking-tight ${
+                isDarkShell ? 'text-zinc-300 group-hover:text-white' : 'text-gray-700 group-hover:text-gray-900'
+              }`}
+            >
+              Conexão CRM
+            </span>
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                cfg.crmIntegrationEnabled !== false ? 'bg-emerald-500' : 'bg-gray-400'
+              }`}
+            />
           </div>
           <div className="p-1 rounded-lg text-gray-400 shrink-0">
             {openMenu === 'crm' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -1517,7 +1507,7 @@ export function QuoteBuilderDrawerPanel({
         </button>
 
         {openMenu === 'crm' && (
-          <div className="px-3.5 pb-4 pt-2 border-t border-gray-100 dark:border-zinc-800/80 space-y-3">
+          <div className="px-3 pb-4 pt-2 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
@@ -1719,40 +1709,30 @@ export function QuoteBuilderDrawerPanel({
       </div>
 
       {/* ====================================================================
-          MENU DROPDOWN 2: LAYOUT (FUNDO, ESCURECIMENTO, MODELOS, CAIXA & LACUNAS)
+          MENU DROPDOWN 2: LAYOUT (DESIGN DE FOTO 2)
           ==================================================================== */}
-      <div
-        className={`rounded-2xl border overflow-hidden transition-all ${
-          isDarkShell ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white border-gray-200 shadow-sm'
-        }`}
-      >
+      <div className="transition-all">
         <button
           type="button"
           onClick={() => setOpenMenu((prev) => (prev === 'layout' ? null : 'layout'))}
-          className={`w-full px-3.5 py-3 flex items-center justify-between text-left transition-colors cursor-pointer ${
-            isDarkShell ? 'hover:bg-zinc-900' : 'hover:bg-gray-50'
+          className={`group w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-left transition-colors cursor-pointer ${
+            isDarkShell ? 'hover:bg-zinc-800/60' : 'hover:bg-gray-100'
           }`}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-xl bg-[#D05634]/15 text-[#D05634] flex items-center justify-center shrink-0">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <span className={`block text-xs font-black uppercase tracking-wider ${isDarkShell ? 'text-white' : 'text-gray-900'}`}>
-                LAYOUT
-              </span>
-              <span className="block text-[10px] text-gray-500 dark:text-zinc-400 truncate">
-                {activePresetName} • Escurecimento {currentOverlayOpacity}%
-              </span>
-            </div>
-          </div>
+          <span
+            className={`text-xs font-bold tracking-tight ${
+              isDarkShell ? 'text-zinc-300 group-hover:text-white' : 'text-gray-700 group-hover:text-gray-900'
+            }`}
+          >
+            Layout
+          </span>
           <div className="p-1 rounded-lg text-gray-400 shrink-0">
             {openMenu === 'layout' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </div>
         </button>
 
         {openMenu === 'layout' && (
-          <div className="px-3.5 pb-4 pt-3 border-t border-gray-100 dark:border-zinc-800/80 space-y-4">
+          <div className="px-3 pb-4 pt-2 space-y-4">
             {/* 1. IMAGEM DE FUNDO & PORCENTAGEM DO EFEITO ESCURECIDO */}
             <div
               className={`p-3.5 rounded-2xl border space-y-3 ${
@@ -1874,10 +1854,10 @@ export function QuoteBuilderDrawerPanel({
               </div>
             </div>
 
-            {/* 2. SELETOR INTERNO DE CONFIGURAÇÃO DO LAYOUT DA CAIXA */}
+            {/* 2. SELETOR INTERNO DE CONFIGURAÇÃO VISUAL DA CAIXA */}
             <div className="space-y-1.5">
               <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">
-                Configurar Parte do Layout da Caixa
+                Configurar Estilo Visual da Caixa
               </label>
               <select
                 value={subTab}
@@ -1888,7 +1868,6 @@ export function QuoteBuilderDrawerPanel({
               >
                 <option value="layouts">1. Modelos de Caixa & Botão de Envio</option>
                 <option value="caixa">2. Estilo da Caixa, Cores, Fontes & Drag-and-Drop</option>
-                <option value="campos">3. Lacunas / Campos do Formulário ({cfg.fields.length})</option>
               </select>
             </div>
 
@@ -2352,354 +2331,378 @@ export function QuoteBuilderDrawerPanel({
         </div>
       )}
 
-      {/* SUBTAB 3: LACUNAS & CAMPOS DO FORMULÁRIO (ADICIONAR / REMOVER / PERSONALIZAR) */}
-      {subTab === 'campos' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-[#D05634] block">
-                Lacunas da Caixa ({cfg.fields.length})
-              </span>
-              <p className="text-[11px] text-gray-500 dark:text-zinc-400">
-                Adicione ou remova campos para aumentar ou diminuir a caixa.
-              </p>
+          </div>
+        )}
+      </div>
+
+      {/* ====================================================================
+          MENU DROPDOWN 3: ORÇAMENTO BOX (DESIGN DE FOTO 2)
+          ==================================================================== */}
+      <div className="transition-all">
+        <button
+          type="button"
+          onClick={() => setOpenMenu((prev) => (prev === 'box' ? null : 'box'))}
+          className={`group w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-left transition-colors cursor-pointer ${
+            isDarkShell ? 'hover:bg-zinc-800/60' : 'hover:bg-gray-100'
+          }`}
+        >
+          <span
+            className={`text-xs font-bold tracking-tight ${
+              isDarkShell ? 'text-zinc-300 group-hover:text-white' : 'text-gray-700 group-hover:text-gray-900'
+            }`}
+          >
+            Orçamento Box
+          </span>
+          <div className="p-1 rounded-lg text-gray-400 shrink-0">
+            {openMenu === 'box' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {openMenu === 'box' && (
+          <div className="px-3 pb-4 pt-2 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#D05634] block">
+                  Lacunas & Campos da Caixa ({cfg.fields.length})
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-zinc-400 leading-relaxed">
+                  Adicione, remova ou edite cada lacuna, pergunta, opção com preço e link auxiliar da sua caixa de orçamento.
+                </p>
+              </div>
             </div>
-          </div>
 
-          {/* Adicionar Nova Lacuna Dropdown */}
-          <div className="grid grid-cols-2 gap-1.5">
-            {[
-              { type: 'text', label: '+ Campo Texto' },
-              { type: 'date', label: '+ Data c/ Checkbox' },
-              { type: 'chips_single', label: '+ Botões Única Escolha' },
-              { type: 'chips_multi', label: '+ Botões Múltipla Escolha' },
-              { type: 'tel', label: '+ WhatsApp' },
-              { type: 'textarea', label: '+ Mensagem' }
-            ].map((btn) => (
-              <button
-                key={btn.type}
-                type="button"
-                onClick={() => handleAddField(btn.type as QuoteFieldType)}
-                className={`py-2 px-2.5 rounded-xl border text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                  isDarkShell
-                    ? 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-[#D05634] hover:text-white'
-                    : 'bg-gray-50 border-gray-200 text-gray-800 hover:border-[#D05634] hover:text-[#D05634]'
-                }`}
-              >
-                <span>{btn.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Lista de Campos Ativos */}
-          <div className="space-y-2.5">
-            {cfg.fields.map((field, idx) => {
-              const isExp = expandedFieldId === field.id;
-              return (
-                <div
-                  key={field.id}
-                  className={`rounded-2xl border transition-all ${
-                    isExp
-                      ? 'border-[#D05634] bg-[#D05634]/5'
-                      : isDarkShell
-                        ? 'bg-zinc-950 border-zinc-800'
-                        : 'bg-white border-gray-200'
+            {/* Adicionar Nova Lacuna Dropdown */}
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { type: 'text', label: '+ Campo Texto' },
+                { type: 'date', label: '+ Data c/ Checkbox' },
+                { type: 'chips_single', label: '+ Botões Única Escolha' },
+                { type: 'chips_multi', label: '+ Botões Múltipla Escolha' },
+                { type: 'tel', label: '+ WhatsApp' },
+                { type: 'textarea', label: '+ Mensagem' }
+              ].map((btn) => (
+                <button
+                  key={btn.type}
+                  type="button"
+                  onClick={() => handleAddField(btn.type as QuoteFieldType)}
+                  className={`py-2 px-2.5 rounded-xl border text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                    isDarkShell
+                      ? 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-[#D05634] hover:text-white'
+                      : 'bg-gray-50 border-gray-200 text-gray-800 hover:border-[#D05634] hover:text-[#D05634]'
                   }`}
                 >
+                  <span>{btn.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Lista de Campos Ativos */}
+            <div className="space-y-2.5">
+              {cfg.fields.map((field, idx) => {
+                const isExp = expandedFieldId === field.id;
+                return (
                   <div
-                    onClick={() => setExpandedFieldId(isExp ? null : field.id)}
-                    className="p-3 flex items-center justify-between gap-2 cursor-pointer"
+                    key={field.id}
+                    className={`rounded-2xl border transition-all ${
+                      isExp
+                        ? 'border-[#D05634] bg-[#D05634]/5'
+                        : isDarkShell
+                          ? 'bg-zinc-950 border-zinc-800'
+                          : 'bg-white border-gray-200'
+                    }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-black block truncate">{field.label}</span>
-                      <span className="text-[10px] text-gray-400 uppercase font-mono">{field.type}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        disabled={idx === 0}
-                        onClick={() => handleMoveField(idx, -1)}
-                        className="p-1 text-gray-400 hover:text-white disabled:opacity-25 cursor-pointer"
-                      >
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === cfg.fields.length - 1}
-                        onClick={() => handleMoveField(idx, 1)}
-                        className="p-1 text-gray-400 hover:text-white disabled:opacity-25 cursor-pointer"
-                      >
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveField(field.id)}
-                        className="p-1 text-gray-400 hover:text-red-500 cursor-pointer"
-                        title="Remover lacuna"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {isExp && (
-                    <div className="px-3 pb-3.5 pt-2 border-t border-gray-200/60 dark:border-zinc-800 space-y-3">
-                      <div>
-                        <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                          Título / Pergunta da Lacuna
-                        </label>
-                        <input
-                          type="text"
-                          value={field.label}
-                          onChange={(e) => handleUpdateField(field.id, { label: e.target.value })}
-                          className={`w-full px-3 py-2 rounded-xl border text-xs ${
-                            isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                          }`}
-                        />
+                    <div
+                      onClick={() => setExpandedFieldId(isExp ? null : field.id)}
+                      className="p-3 flex items-center justify-between gap-2 cursor-pointer"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs font-black block truncate">{field.label}</span>
+                        <span className="text-[10px] text-gray-400 uppercase font-mono">{field.type}</span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                            Tipo de Campo
-                          </label>
-                          <select
-                            value={field.type}
-                            onChange={(e) =>
-                              handleUpdateField(field.id, { type: e.target.value as QuoteFieldType })
-                            }
-                            className={`w-full px-2.5 py-2 rounded-xl border text-xs ${
-                              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                            }`}
-                          >
-                            <option value="text">Texto Curto</option>
-                            <option value="tel">WhatsApp / Telefone</option>
-                            <option value="email">E-mail</option>
-                            <option value="date">Data do Evento</option>
-                            <option value="chips_single">Botões (Escolha Única)</option>
-                            <option value="chips_multi">Botões (Múltipla Escolha)</option>
-                            <option value="select">Lista Suspensa</option>
-                            <option value="textarea">Mensagem Longa</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                            Largura na Caixa
-                          </label>
-                          <select
-                            value={field.width || 'full'}
-                            onChange={(e) =>
-                              handleUpdateField(field.id, { width: e.target.value as any })
-                            }
-                            className={`w-full px-2.5 py-2 rounded-xl border text-xs ${
-                              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                            }`}
-                          >
-                            <option value="full">Linha Inteira (100%)</option>
-                            <option value="half">Meia Linha (50%)</option>
-                            <option value="third">Um Terço (33%)</option>
-                          </select>
-                        </div>
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => handleMoveField(idx, -1)}
+                          className="p-1 text-gray-400 hover:text-white disabled:opacity-25 cursor-pointer"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === cfg.fields.length - 1}
+                          onClick={() => handleMoveField(idx, 1)}
+                          className="p-1 text-gray-400 hover:text-white disabled:opacity-25 cursor-pointer"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveField(field.id)}
+                          className="p-1 text-gray-400 hover:text-red-500 cursor-pointer"
+                          title="Remover lacuna"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
+                    </div>
 
-                      {(field.type === 'text' ||
-                        field.type === 'tel' ||
-                        field.type === 'email' ||
-                        field.type === 'date' ||
-                        field.type === 'textarea') && (
+                    {isExp && (
+                      <div className="px-3 pb-3.5 pt-2 border-t border-gray-200/60 dark:border-zinc-800 space-y-3">
                         <div>
                           <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                            Texto de Exemplo (Placeholder)
+                            Título / Pergunta da Lacuna
                           </label>
                           <input
                             type="text"
-                            value={field.placeholder || ''}
-                            onChange={(e) =>
-                              handleUpdateField(field.id, { placeholder: e.target.value })
-                            }
+                            value={field.label}
+                            onChange={(e) => handleUpdateField(field.id, { label: e.target.value })}
                             className={`w-full px-3 py-2 rounded-xl border text-xs ${
                               isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
                             }`}
                           />
                         </div>
-                      )}
 
-                      {field.type === 'date' && (
-                        <div className="space-y-2 pt-1 border-t border-gray-200/50 dark:border-zinc-800">
-                          <label className="flex items-center justify-between gap-2 cursor-pointer">
-                            <span className="text-xs font-bold">
-                              Ativar caixa "Ainda não definimos a data"
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(field.showUndefinedDateCheckbox)}
-                              onChange={(e) =>
-                                handleUpdateField(field.id, {
-                                  showUndefinedDateCheckbox: e.target.checked
-                                })
-                              }
-                              className="w-4 h-4 accent-[#D05634]"
-                            />
-                          </label>
-                          {field.showUndefinedDateCheckbox && (
-                            <div>
-                              <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                                Texto da caixa de seleção sem data
-                              </label>
-                              <input
-                                type="text"
-                                value={field.undefinedDateLabel || ''}
-                                onChange={(e) =>
-                                  handleUpdateField(field.id, { undefinedDateLabel: e.target.value })
-                                }
-                                placeholder="Ainda não definimos a data"
-                                className={`w-full px-3 py-1.5 rounded-xl border text-xs ${
-                                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                                }`}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {(field.type === 'chips_single' ||
-                        field.type === 'chips_multi' ||
-                        field.type === 'select') && (
-                        <div className="space-y-3 pt-1 border-t border-gray-200/50 dark:border-zinc-800">
-                          {field.type !== 'select' && (
-                            <div>
-                              <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                                Disposição de Colunas dos Botões
-                              </label>
-                              <select
-                                value={field.chipColumns || 2}
-                                onChange={(e) =>
-                                  handleUpdateField(field.id, { chipColumns: Number(e.target.value) as 1 | 2 | 3 })
-                                }
-                                className={`w-full px-2.5 py-1.5 rounded-xl border text-xs ${
-                                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                                }`}
-                              >
-                                <option value={1}>1 Botão por Linha (Lista Vertical)</option>
-                                <option value={2}>2 Botões por Linha (Lado a Lado)</option>
-                                <option value={3}>3 Botões por Linha (Compacto)</option>
-                              </select>
-                            </div>
-                          )}
-
-                          <div className="space-y-2">
-                            <label className="block text-[10px] font-bold uppercase text-gray-400">
-                              Opções de Escolha / Preços / Nomes dos Botões ({field.options?.length || 0})
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                              Tipo de Campo
                             </label>
-                            <p className="text-[10px] text-gray-400">
-                              Altere a escrita de qualquer opção diretamente nos campos abaixo:
-                            </p>
-                            <div className="space-y-1.5">
-                              {(field.options || []).map((opt, oIdx) => (
-                                <div key={oIdx} className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-mono text-gray-400 w-4 text-right">{oIdx + 1}.</span>
-                                  <input
-                                    type="text"
-                                    value={opt}
-                                    onChange={(e) => {
-                                      const nextOpts = [...(field.options || [])];
-                                      nextOpts[oIdx] = e.target.value;
-                                      handleUpdateField(field.id, { options: nextOpts });
-                                    }}
-                                    placeholder={`Opção ${oIdx + 1}`}
-                                    className={`flex-1 px-3 py-1.5 rounded-xl border text-xs font-semibold outline-none focus:border-[#D05634] ${
-                                      isDarkShell
-                                        ? 'bg-zinc-900 border-zinc-800 text-white'
-                                        : 'bg-white border-gray-200 text-black'
-                                    }`}
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const nextOpts = (field.options || []).filter((_, i) => i !== oIdx);
-                                      handleUpdateField(field.id, { options: nextOpts });
-                                    }}
-                                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer transition-colors"
-                                    title="Remover esta opção"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
+                            <select
+                              value={field.type}
+                              onChange={(e) =>
+                                handleUpdateField(field.id, { type: e.target.value as QuoteFieldType })
+                              }
+                              className={`w-full px-2.5 py-2 rounded-xl border text-xs ${
+                                isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                              }`}
+                            >
+                              <option value="text">Texto Curto</option>
+                              <option value="tel">WhatsApp / Telefone</option>
+                              <option value="email">E-mail</option>
+                              <option value="date">Data do Evento</option>
+                              <option value="chips_single">Botões (Escolha Única)</option>
+                              <option value="chips_multi">Botões (Múltipla Escolha)</option>
+                              <option value="select">Lista Suspensa</option>
+                              <option value="textarea">Mensagem Longa</option>
+                            </select>
+                          </div>
 
-                            <div className="flex gap-1.5 pt-1">
-                              <input
-                                type="text"
-                                value={newOptionInputs[field.id] || ''}
-                                onChange={(e) =>
-                                  setNewOptionInputs((prev) => ({
-                                    ...prev,
-                                    [field.id]: e.target.value
-                                  }))
-                                }
-                                placeholder="Adicionar nova opção/preço (ex: R$ 15 a 20 mil)"
-                                className={`flex-1 px-3 py-1.5 rounded-xl border text-xs ${
-                                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                                }`}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const val = (newOptionInputs[field.id] || '').trim();
-                                  if (!val) return;
-                                  handleUpdateField(field.id, {
-                                    options: [...(field.options || []), val]
-                                  });
-                                  setNewOptionInputs((prev) => ({ ...prev, [field.id]: '' }));
-                                }}
-                                className="px-3 py-1.5 rounded-xl bg-[#D05634] text-white text-xs font-bold cursor-pointer hover:bg-[#b84a2b] transition-colors"
-                              >
-                                + Add
-                              </button>
-                            </div>
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                              Largura na Caixa
+                            </label>
+                            <select
+                              value={field.width || 'full'}
+                              onChange={(e) =>
+                                handleUpdateField(field.id, { width: e.target.value as any })
+                              }
+                              className={`w-full px-2.5 py-2 rounded-xl border text-xs ${
+                                isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                              }`}
+                            >
+                              <option value="full">Linha Inteira (100%)</option>
+                              <option value="half">Meia Linha (50%)</option>
+                              <option value="third">Um Terço (33%)</option>
+                            </select>
                           </div>
                         </div>
-                      )}
 
-                      {/* Link de Exemplo / Vídeo abaixo de qualquer campo */}
-                      <div className="space-y-2 pt-2 border-t border-gray-200/50 dark:border-zinc-800">
-                        <label className="block text-[10px] font-bold uppercase text-gray-400">
-                          Link de Exemplo / Vídeo Abaixo da Lacuna (Opcional)
-                        </label>
-                        <input
-                          type="text"
-                          value={field.helperLinkText || ''}
-                          onChange={(e) =>
-                            handleUpdateField(field.id, { helperLinkText: e.target.value })
-                          }
-                          placeholder="Ex: Não sabe o que é same-day edit? Assista a um exemplo"
-                          className={`w-full px-3 py-1.5 rounded-xl border text-xs ${
-                            isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                          }`}
-                        />
-                        <input
-                          type="url"
-                          value={field.helperLinkUrl || ''}
-                          onChange={(e) =>
-                            handleUpdateField(field.id, { helperLinkUrl: e.target.value })
-                          }
-                          placeholder="URL do vídeo (YouTube, Vimeo ou Link de destino)"
-                          className={`w-full px-3 py-1.5 rounded-xl border text-xs font-mono ${
-                            isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                          }`}
-                        />
+                        {(field.type === 'text' ||
+                          field.type === 'tel' ||
+                          field.type === 'email' ||
+                          field.type === 'date' ||
+                          field.type === 'textarea') && (
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                              Texto de Exemplo (Placeholder)
+                            </label>
+                            <input
+                              type="text"
+                              value={field.placeholder || ''}
+                              onChange={(e) =>
+                                handleUpdateField(field.id, { placeholder: e.target.value })
+                              }
+                              className={`w-full px-3 py-2 rounded-xl border text-xs ${
+                                isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                              }`}
+                            />
+                          </div>
+                        )}
+
+                        {field.type === 'date' && (
+                          <div className="space-y-2 pt-1 border-t border-gray-200/50 dark:border-zinc-800">
+                            <label className="flex items-center justify-between gap-2 cursor-pointer">
+                              <span className="text-xs font-bold">
+                                Ativar caixa "Ainda não definimos a data"
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(field.showUndefinedDateCheckbox)}
+                                onChange={(e) =>
+                                  handleUpdateField(field.id, {
+                                    showUndefinedDateCheckbox: e.target.checked
+                                  })
+                                }
+                                className="w-4 h-4 accent-[#D05634]"
+                              />
+                            </label>
+                            {field.showUndefinedDateCheckbox && (
+                              <div>
+                                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                                  Texto da caixa de seleção sem data
+                                </label>
+                                <input
+                                  type="text"
+                                  value={field.undefinedDateLabel || ''}
+                                  onChange={(e) =>
+                                    handleUpdateField(field.id, { undefinedDateLabel: e.target.value })
+                                  }
+                                  placeholder="Ainda não definimos a data"
+                                  className={`w-full px-3 py-1.5 rounded-xl border text-xs ${
+                                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                                  }`}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {(field.type === 'chips_single' ||
+                          field.type === 'chips_multi' ||
+                          field.type === 'select') && (
+                          <div className="space-y-3 pt-1 border-t border-gray-200/50 dark:border-zinc-800">
+                            {field.type !== 'select' && (
+                              <div>
+                                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                                  Disposição de Colunas dos Botões
+                                </label>
+                                <select
+                                  value={field.chipColumns || 2}
+                                  onChange={(e) =>
+                                    handleUpdateField(field.id, { chipColumns: Number(e.target.value) as 1 | 2 | 3 })
+                                  }
+                                  className={`w-full px-2.5 py-1.5 rounded-xl border text-xs ${
+                                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                                  }`}
+                                >
+                                  <option value={1}>1 Botão por Linha (Lista Vertical)</option>
+                                  <option value={2}>2 Botões por Linha (Lado a Lado)</option>
+                                  <option value={3}>3 Botões por Linha (Compacto)</option>
+                                </select>
+                              </div>
+                            )}
+
+                            <div className="space-y-2">
+                              <label className="block text-[10px] font-bold uppercase text-gray-400">
+                                Opções de Escolha / Preços / Nomes dos Botões ({field.options?.length || 0})
+                              </label>
+                              <p className="text-[10px] text-gray-400">
+                                Altere a escrita de qualquer opção diretamente nos campos abaixo:
+                              </p>
+                              <div className="space-y-1.5">
+                                {(field.options || []).map((opt, oIdx) => (
+                                  <div key={oIdx} className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-mono text-gray-400 w-4 text-right">{oIdx + 1}.</span>
+                                    <input
+                                      type="text"
+                                      value={opt}
+                                      onChange={(e) => {
+                                        const nextOpts = [...(field.options || [])];
+                                        nextOpts[oIdx] = e.target.value;
+                                        handleUpdateField(field.id, { options: nextOpts });
+                                      }}
+                                      placeholder={`Opção ${oIdx + 1}`}
+                                      className={`flex-1 px-3 py-1.5 rounded-xl border text-xs font-semibold outline-none focus:border-[#D05634] ${
+                                        isDarkShell
+                                          ? 'bg-zinc-900 border-zinc-800 text-white'
+                                          : 'bg-white border-gray-200 text-black'
+                                      }`}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const nextOpts = (field.options || []).filter((_, i) => i !== oIdx);
+                                        handleUpdateField(field.id, { options: nextOpts });
+                                      }}
+                                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer transition-colors"
+                                      title="Remover esta opção"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="flex gap-1.5 pt-1">
+                                <input
+                                  type="text"
+                                  value={newOptionInputs[field.id] || ''}
+                                  onChange={(e) =>
+                                    setNewOptionInputs((prev) => ({
+                                      ...prev,
+                                      [field.id]: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Adicionar nova opção/preço (ex: R$ 15 a 20 mil)"
+                                  className={`flex-1 px-3 py-1.5 rounded-xl border text-xs ${
+                                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const val = (newOptionInputs[field.id] || '').trim();
+                                    if (!val) return;
+                                    handleUpdateField(field.id, {
+                                      options: [...(field.options || []), val]
+                                    });
+                                    setNewOptionInputs((prev) => ({ ...prev, [field.id]: '' }));
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl bg-[#D05634] text-white text-xs font-bold cursor-pointer hover:bg-[#b84a2b] transition-colors"
+                                >
+                                  + Add
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Link de Exemplo / Vídeo abaixo de qualquer campo */}
+                        <div className="space-y-2 pt-2 border-t border-gray-200/50 dark:border-zinc-800">
+                          <label className="block text-[10px] font-bold uppercase text-gray-400">
+                            Link de Exemplo / Vídeo Abaixo da Lacuna (Opcional)
+                          </label>
+                          <input
+                            type="text"
+                            value={field.helperLinkText || ''}
+                            onChange={(e) =>
+                              handleUpdateField(field.id, { helperLinkText: e.target.value })
+                            }
+                            placeholder="Ex: Não sabe o que é same-day edit? Assista a um exemplo"
+                            className={`w-full px-3 py-1.5 rounded-xl border text-xs ${
+                              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                            }`}
+                          />
+                          <input
+                            type="url"
+                            value={field.helperLinkUrl || ''}
+                            onChange={(e) =>
+                              handleUpdateField(field.id, { helperLinkUrl: e.target.value })
+                            }
+                            placeholder="URL do vídeo (YouTube, Vimeo ou Link de destino)"
+                            className={`w-full px-3 py-1.5 rounded-xl border text-xs font-mono ${
+                              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                            }`}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
