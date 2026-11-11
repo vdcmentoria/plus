@@ -1120,27 +1120,6 @@ export function InteractiveQuoteFormBox({
                         );
                       })}
                     </div>
-
-                    {/* Optional Helper Link (e.g. "▸ Não sabe o que é same-day edit? Assista a um exemplo") */}
-                    {field.helperLinkText && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (field.helperLinkUrl) {
-                            if (field.helperLinkUrl.includes('youtube.com') || field.helperLinkUrl.includes('youtu.be') || field.helperLinkUrl.includes('vimeo.com')) {
-                              setHelperVideoModalUrl(field.helperLinkUrl);
-                            } else {
-                              window.open(field.helperLinkUrl, '_blank', 'noopener,noreferrer');
-                            }
-                          }
-                        }}
-                        style={{ color: cfg.inputTextColor, borderColor: cfg.inputBorderColor }}
-                        className="inline-flex items-center gap-1.5 text-[11px] opacity-75 hover:opacity-100 border-b pb-0.5 pt-1 transition-opacity cursor-pointer"
-                      >
-                        <Play className="w-2.5 h-2.5 fill-current shrink-0" />
-                        <span>{field.helperLinkText}</span>
-                      </button>
-                    )}
                   </div>
                 )}
 
@@ -1159,6 +1138,29 @@ export function InteractiveQuoteFormBox({
                     }}
                     className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all resize-none placeholder:opacity-45"
                   />
+                )}
+
+                {/* Optional Helper Link / Video for ANY field type */}
+                {field.helperLinkText && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (field.helperLinkUrl) {
+                          if (field.helperLinkUrl.includes('youtube.com') || field.helperLinkUrl.includes('youtu.be') || field.helperLinkUrl.includes('vimeo.com')) {
+                            setHelperVideoModalUrl(field.helperLinkUrl);
+                          } else {
+                            window.open(field.helperLinkUrl, '_blank', 'noopener,noreferrer');
+                          }
+                        }
+                      }}
+                      style={{ color: cfg.inputTextColor, borderColor: cfg.inputBorderColor }}
+                      className="inline-flex items-center gap-1.5 text-[11px] opacity-80 hover:opacity-100 border-b pb-0.5 pt-1 transition-opacity cursor-pointer"
+                    >
+                      <Play className="w-2.5 h-2.5 fill-current shrink-0" />
+                      <span>{field.helperLinkText}</span>
+                    </button>
+                  </div>
                 )}
               </div>
             );
@@ -2525,10 +2527,10 @@ export function QuoteBuilderDrawerPanel({
                       )}
 
                       {field.type === 'date' && (
-                        <div className="space-y-2 pt-1">
+                        <div className="space-y-2 pt-1 border-t border-gray-200/50 dark:border-zinc-800">
                           <label className="flex items-center justify-between gap-2 cursor-pointer">
                             <span className="text-xs font-bold">
-                              Opção "Ainda não definimos a data"
+                              Ativar caixa "Ainda não definimos a data"
                             </span>
                             <input
                               type="checkbox"
@@ -2541,96 +2543,19 @@ export function QuoteBuilderDrawerPanel({
                               className="w-4 h-4 accent-[#D05634]"
                             />
                           </label>
-                        </div>
-                      )}
-
-                      {(field.type === 'chips_single' ||
-                        field.type === 'chips_multi' ||
-                        field.type === 'select') && (
-                        <div className="space-y-2 pt-1">
-                          <label className="block text-[10px] font-bold uppercase text-gray-400">
-                            Opções de Escolha ({field.options?.length || 0})
-                          </label>
-                          <div className="flex flex-wrap gap-1.5">
-                            {(field.options || []).map((opt, oIdx) => (
-                              <span
-                                key={oIdx}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border ${
-                                  isDarkShell
-                                    ? 'bg-zinc-900 border-zinc-700 text-zinc-200'
-                                    : 'bg-gray-100 border-gray-300 text-gray-800'
-                                }`}
-                              >
-                                <span>{opt}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const nextOpts = (field.options || []).filter((_, i) => i !== oIdx);
-                                    handleUpdateField(field.id, { options: nextOpts });
-                                  }}
-                                  className="text-gray-400 hover:text-red-500 cursor-pointer"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-
-                          <div className="flex gap-1.5">
-                            <input
-                              type="text"
-                              value={newOptionInputs[field.id] || ''}
-                              onChange={(e) =>
-                                setNewOptionInputs((prev) => ({
-                                  ...prev,
-                                  [field.id]: e.target.value
-                                }))
-                              }
-                              placeholder="Nova opção (ex: Álbum Impresso)"
-                              className={`flex-1 px-3 py-1.5 rounded-xl border text-xs ${
-                                isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                              }`}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const val = (newOptionInputs[field.id] || '').trim();
-                                if (!val) return;
-                                handleUpdateField(field.id, {
-                                  options: [...(field.options || []), val]
-                                });
-                                setNewOptionInputs((prev) => ({ ...prev, [field.id]: '' }));
-                              }}
-                              className="px-3 py-1.5 rounded-xl bg-[#D05634] text-white text-xs font-bold cursor-pointer"
-                            >
-                              + Add
-                            </button>
-                          </div>
-
-                          {field.type !== 'select' && (
-                            <div className="space-y-2 pt-2 border-t border-gray-200/50 dark:border-zinc-800">
-                              <label className="block text-[10px] font-bold uppercase text-gray-400">
-                                Link de Exemplo / Vídeo Abaixo do Campo (Opcional)
+                          {field.showUndefinedDateCheckbox && (
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                                Texto da caixa de seleção sem data
                               </label>
                               <input
                                 type="text"
-                                value={field.helperLinkText || ''}
+                                value={field.undefinedDateLabel || ''}
                                 onChange={(e) =>
-                                  handleUpdateField(field.id, { helperLinkText: e.target.value })
+                                  handleUpdateField(field.id, { undefinedDateLabel: e.target.value })
                                 }
-                                placeholder="Ex: Não sabe o que é same-day edit? Assista a um exemplo"
+                                placeholder="Ainda não definimos a data"
                                 className={`w-full px-3 py-1.5 rounded-xl border text-xs ${
-                                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                                }`}
-                              />
-                              <input
-                                type="url"
-                                value={field.helperLinkUrl || ''}
-                                onChange={(e) =>
-                                  handleUpdateField(field.id, { helperLinkUrl: e.target.value })
-                                }
-                                placeholder="URL do vídeo (YouTube, Vimeo ou Link)"
-                                className={`w-full px-3 py-1.5 rounded-xl border text-xs font-mono ${
                                   isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
                                 }`}
                               />
@@ -2638,6 +2563,135 @@ export function QuoteBuilderDrawerPanel({
                           )}
                         </div>
                       )}
+
+                      {(field.type === 'chips_single' ||
+                        field.type === 'chips_multi' ||
+                        field.type === 'select') && (
+                        <div className="space-y-3 pt-1 border-t border-gray-200/50 dark:border-zinc-800">
+                          {field.type !== 'select' && (
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                                Disposição de Colunas dos Botões
+                              </label>
+                              <select
+                                value={field.chipColumns || 2}
+                                onChange={(e) =>
+                                  handleUpdateField(field.id, { chipColumns: Number(e.target.value) as 1 | 2 | 3 })
+                                }
+                                className={`w-full px-2.5 py-1.5 rounded-xl border text-xs ${
+                                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                                }`}
+                              >
+                                <option value={1}>1 Botão por Linha (Lista Vertical)</option>
+                                <option value={2}>2 Botões por Linha (Lado a Lado)</option>
+                                <option value={3}>3 Botões por Linha (Compacto)</option>
+                              </select>
+                            </div>
+                          )}
+
+                          <div className="space-y-2">
+                            <label className="block text-[10px] font-bold uppercase text-gray-400">
+                              Opções de Escolha / Preços / Nomes dos Botões ({field.options?.length || 0})
+                            </label>
+                            <p className="text-[10px] text-gray-400">
+                              Altere a escrita de qualquer opção diretamente nos campos abaixo:
+                            </p>
+                            <div className="space-y-1.5">
+                              {(field.options || []).map((opt, oIdx) => (
+                                <div key={oIdx} className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-mono text-gray-400 w-4 text-right">{oIdx + 1}.</span>
+                                  <input
+                                    type="text"
+                                    value={opt}
+                                    onChange={(e) => {
+                                      const nextOpts = [...(field.options || [])];
+                                      nextOpts[oIdx] = e.target.value;
+                                      handleUpdateField(field.id, { options: nextOpts });
+                                    }}
+                                    placeholder={`Opção ${oIdx + 1}`}
+                                    className={`flex-1 px-3 py-1.5 rounded-xl border text-xs font-semibold outline-none focus:border-[#D05634] ${
+                                      isDarkShell
+                                        ? 'bg-zinc-900 border-zinc-800 text-white'
+                                        : 'bg-white border-gray-200 text-black'
+                                    }`}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextOpts = (field.options || []).filter((_, i) => i !== oIdx);
+                                      handleUpdateField(field.id, { options: nextOpts });
+                                    }}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer transition-colors"
+                                    title="Remover esta opção"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex gap-1.5 pt-1">
+                              <input
+                                type="text"
+                                value={newOptionInputs[field.id] || ''}
+                                onChange={(e) =>
+                                  setNewOptionInputs((prev) => ({
+                                    ...prev,
+                                    [field.id]: e.target.value
+                                  }))
+                                }
+                                placeholder="Adicionar nova opção/preço (ex: R$ 15 a 20 mil)"
+                                className={`flex-1 px-3 py-1.5 rounded-xl border text-xs ${
+                                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const val = (newOptionInputs[field.id] || '').trim();
+                                  if (!val) return;
+                                  handleUpdateField(field.id, {
+                                    options: [...(field.options || []), val]
+                                  });
+                                  setNewOptionInputs((prev) => ({ ...prev, [field.id]: '' }));
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-[#D05634] text-white text-xs font-bold cursor-pointer hover:bg-[#b84a2b] transition-colors"
+                              >
+                                + Add
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Link de Exemplo / Vídeo abaixo de qualquer campo */}
+                      <div className="space-y-2 pt-2 border-t border-gray-200/50 dark:border-zinc-800">
+                        <label className="block text-[10px] font-bold uppercase text-gray-400">
+                          Link de Exemplo / Vídeo Abaixo da Lacuna (Opcional)
+                        </label>
+                        <input
+                          type="text"
+                          value={field.helperLinkText || ''}
+                          onChange={(e) =>
+                            handleUpdateField(field.id, { helperLinkText: e.target.value })
+                          }
+                          placeholder="Ex: Não sabe o que é same-day edit? Assista a um exemplo"
+                          className={`w-full px-3 py-1.5 rounded-xl border text-xs ${
+                            isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                          }`}
+                        />
+                        <input
+                          type="url"
+                          value={field.helperLinkUrl || ''}
+                          onChange={(e) =>
+                            handleUpdateField(field.id, { helperLinkUrl: e.target.value })
+                          }
+                          placeholder="URL do vídeo (YouTube, Vimeo ou Link de destino)"
+                          className={`w-full px-3 py-1.5 rounded-xl border text-xs font-mono ${
+                            isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                          }`}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>

@@ -1978,7 +1978,7 @@ function CollectionsView({
           visibleCollections.map((item) => (
             <div 
               key={item.id} 
-              className="flex flex-col group cursor-pointer relative animate-in fade-in slide-in-from-bottom-4 duration-500" 
+              className="flex flex-col group cursor-pointer relative animate-in fade-in slide-in-from-bottom-4 duration-500 hover:scale-[1.03] transition-transform duration-300" 
               draggable={item.type === 'collection'}
               onDragStart={item.type === 'collection' ? (e) => handleDragStart(e, item) : undefined}
               onDragOver={item.type === 'folder' ? (e) => handleDragOver(e, item) : undefined}
