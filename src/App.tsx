@@ -249,7 +249,7 @@ function Navbar({
   ];
 
   return (
-    <nav className="flex items-center justify-between px-8 py-4 border-b border-gray-100 bg-white sticky top-0 z-50">
+    <nav className="flex items-center justify-between px-8 py-4 border-b border-gray-100 bg-white sticky top-0 z-[9990]">
       <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('inicio')}>
         <img 
           src="https://cdn.plus.framepro.click/uploads/m30bw01epp9ab69/1778538221316-logo%20frame%20plus.png" 
@@ -294,7 +294,7 @@ function Navbar({
           )}
         </button>
         {user ? (
-          <div className="relative" ref={menuRef}>
+          <div className="relative z-[9995]" ref={menuRef}>
             <button 
               onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
               className="w-10 h-10 rounded-full overflow-hidden border border-gray-200 flex items-center justify-center bg-[#FFF0EB] text-[#D05634] font-black text-sm select-none"
@@ -318,7 +318,7 @@ function Navbar({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 z-50 text-sm"
+                  className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 z-[10000] text-sm"
                 >
                   <div className="pb-4 border-b border-gray-100 mb-4">
                     <div className="flex items-center justify-between">
