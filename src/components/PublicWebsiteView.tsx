@@ -924,7 +924,11 @@ export function PublicWebsiteView({
               )}
             </nav>
 
-            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
+            <button 
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+              className="md:hidden text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 active:scale-95 transition-all"
+              aria-label="Abrir Menu de Navegação"
+            >
               {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
           </header>
@@ -934,19 +938,32 @@ export function PublicWebsiteView({
       {/* NAV STYLE 2: Minimalist Top Bar */}
       {navStyle === 'minimal_top' && (
         <header 
-          className="sticky top-0 z-50 px-8 py-4 flex items-center justify-between border-b transition-all"
+          className="sticky top-0 z-50 px-4 sm:px-6 md:px-8 py-3.5 sm:py-4 flex items-center justify-between border-b transition-all"
           style={getHeaderStyle()}
         >
           {renderBrand()}
-          <nav className={`hidden md:flex items-center gap-8 text-xs font-semibold ${navTextTransformClass} ${navLetterSpacingClass}`}>
+          <nav className={`hidden md:flex items-center gap-3 md:gap-4 lg:gap-8 text-xs font-semibold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
+            {blogPosts.length > 0 && (
+              <button 
+                onClick={() => { setActiveNav('blog'); setSelectedPost(null); }} 
+                className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap"
+                style={getNavLinkStyle(activeNav === 'blog')}
+              >
+                Blog
+              </button>
+            )}
           </nav>
-          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
-            <Menu className="w-6 h-6" />
+          <button 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+            className="md:hidden text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 active:scale-95 transition-all"
+            aria-label="Menu"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </header>
       )}
@@ -954,26 +971,30 @@ export function PublicWebsiteView({
       {/* NAV STYLE 3: Centered Logo Header */}
       {navStyle === 'centered_logo' && (
         <header 
-          className="sticky top-0 z-50 px-8 py-4 flex items-center justify-between border-b transition-all"
+          className="sticky top-0 z-50 px-4 sm:px-6 md:px-8 py-3.5 sm:py-4 flex items-center justify-between border-b transition-all"
           style={getHeaderStyle()}
         >
-          <div className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
+          <div className={`hidden md:flex items-center gap-3 md:gap-4 lg:gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.slice(0, Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
           </div>
           <div>{renderBrand()}</div>
-          <div className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
+          <div className={`hidden md:flex items-center gap-3 md:gap-4 lg:gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.slice(Math.ceil(navMenuSections.length / 2)).map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
           </div>
-          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
-            <Menu className="w-6 h-6" />
+          <button 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+            className="md:hidden text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 active:scale-95 transition-all"
+            aria-label="Menu"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </header>
       )}
@@ -981,19 +1002,32 @@ export function PublicWebsiteView({
       {/* NAV STYLE 4: Dark Editorial Bar */}
       {navStyle === 'dark_editorial' && (
         <header 
-          className="sticky top-0 z-50 px-8 py-5 flex items-center justify-between border-b transition-all"
+          className="sticky top-0 z-50 px-4 sm:px-6 md:px-8 py-4 sm:py-5 flex items-center justify-between border-b transition-all"
           style={getHeaderStyle()}
         >
           {renderBrand()}
-          <nav className={`hidden md:flex items-center gap-10 text-xs font-black ${navTextTransformClass} ${navLetterSpacingClass}`}>
+          <nav className={`hidden md:flex items-center gap-4 md:gap-5 lg:gap-10 text-xs font-black ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
+            {blogPosts.length > 0 && (
+              <button 
+                onClick={() => { setActiveNav('blog'); setSelectedPost(null); }} 
+                className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap"
+                style={getNavLinkStyle(activeNav === 'blog')}
+              >
+                Blog
+              </button>
+            )}
           </nav>
-          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
-            <Menu className="w-6 h-6" />
+          <button 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+            className="md:hidden text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 active:scale-95 transition-all"
+            aria-label="Menu"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </header>
       )}
@@ -1001,31 +1035,83 @@ export function PublicWebsiteView({
       {/* NAV STYLE 5: Modern Split Header */}
       {navStyle === 'modern_split' && (
         <header 
-          className="sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between border-b transition-all"
+          className="sticky top-0 z-50 px-4 sm:px-6 py-3 sm:py-3.5 flex items-center justify-between border-b transition-all"
           style={getHeaderStyle()}
         >
           {renderBrand()}
-          <nav className={`hidden md:flex items-center gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
+          <nav className={`hidden md:flex items-center gap-3 md:gap-4 lg:gap-6 text-xs font-bold ${navTextTransformClass} ${navLetterSpacingClass}`}>
             {navMenuSections.map(({ sec, idx, label }) => (
-              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer" style={getNavLinkStyle(activeSection === sec.id)}>
+              <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)} className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap" style={getNavLinkStyle(activeSection === sec.id)}>
                 {label}
               </button>
             ))}
+            {blogPosts.length > 0 && (
+              <button 
+                onClick={() => { setActiveNav('blog'); setSelectedPost(null); }} 
+                className="hover:opacity-100 transition-all cursor-pointer whitespace-nowrap"
+                style={getNavLinkStyle(activeNav === 'blog')}
+              >
+                Blog
+              </button>
+            )}
           </nav>
-          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
-            <Menu className="w-6 h-6" />
+          <button 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+            className="md:hidden text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 active:scale-95 transition-all"
+            aria-label="Menu"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </header>
       )}
 
-      {/* Mobile Drawer Menu */}
+      {/* Mobile Drawer Menu Overlay */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-40 bg-black/95 backdrop-blur-xl flex flex-col p-8 pt-24 gap-6 text-sm font-bold uppercase tracking-widest text-white">
-          {navMenuSections.map(({ sec, idx, label }) => (
-            <button key={sec.id} onClick={() => handleNavSectionClick(sec.id, idx, sec.type)}>
-              {label}
+        <div className="md:hidden fixed inset-0 z-[100] bg-black/95 backdrop-blur-2xl flex flex-col p-6 overflow-y-auto animate-in fade-in duration-200">
+          <div className="flex items-center justify-between pb-6 border-b border-white/15">
+            <span className="text-xs uppercase tracking-widest font-black text-zinc-400">
+              Menu de Navegação
+            </span>
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="p-2.5 rounded-full bg-white/10 text-white min-h-[44px] min-w-[44px] flex items-center justify-center active:scale-95 hover:bg-white/20 transition-all"
+              aria-label="Fechar Menu"
+            >
+              <X className="w-6 h-6" />
             </button>
-          ))}
+          </div>
+
+          <div className="flex flex-col py-6 gap-2 text-sm font-bold uppercase tracking-widest text-white">
+            {navMenuSections.map(({ sec, idx, label }) => (
+              <button 
+                key={sec.id} 
+                onClick={() => {
+                  handleNavSectionClick(sec.id, idx, sec.type);
+                  setIsMobileMenuOpen(false);
+                }}
+                className="min-h-[48px] py-3 px-4 rounded-2xl text-left flex items-center justify-between hover:bg-white/10 active:bg-white/15 transition-colors"
+                style={activeSection === sec.id ? { color: accentColor } : undefined}
+              >
+                <span>{label}</span>
+                <span className="text-zinc-500 text-xs">→</span>
+              </button>
+            ))}
+
+            {blogPosts.length > 0 && (
+              <button 
+                onClick={() => {
+                  setActiveNav('blog');
+                  setSelectedPost(null);
+                  setIsMobileMenuOpen(false);
+                }}
+                className="min-h-[48px] py-3 px-4 rounded-2xl text-left flex items-center justify-between hover:bg-white/10 active:bg-white/15 transition-colors"
+                style={activeNav === 'blog' ? { color: accentColor } : undefined}
+              >
+                <span>Blog</span>
+                <span className="text-zinc-500 text-xs">→</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 

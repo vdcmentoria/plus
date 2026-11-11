@@ -567,17 +567,27 @@ export function InteractiveQuoteFormBox({
   useEffect(() => {
     if (!isDragging) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMove = (clientX: number, clientY: number) => {
       if (!dragStartRef.current) return;
-      const dx = e.clientX - dragStartRef.current.startMouseX;
-      const dy = e.clientY - dragStartRef.current.startMouseY;
+      const dx = clientX - dragStartRef.current.startMouseX;
+      const dy = clientY - dragStartRef.current.startMouseY;
       setDragOffset({
         x: Math.round(dragStartRef.current.startOffsetX + dx),
         y: Math.round(dragStartRef.current.startOffsetY + dy)
       });
     };
 
-    const handleMouseUp = () => {
+    const handleMouseMove = (e: MouseEvent) => {
+      handleMove(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches && e.touches[0]) {
+        handleMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+
+    const handleEnd = () => {
       setIsDragging(false);
       if (dragStartRef.current && onUpdateConfig) {
         onUpdateConfig({
@@ -590,20 +600,24 @@ export function InteractiveQuoteFormBox({
     };
 
     window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleEnd);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleEnd);
     };
   }, [isDragging, dragOffset, cfg, onUpdateConfig]);
 
-  const handleStartDrag = (e: React.MouseEvent) => {
+  const handleStartDrag = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isEditorPreview) return;
-    e.stopPropagation();
-    e.preventDefault();
+    const clientX = 'touches' in e && e.touches[0] ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e && e.touches[0] ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
     dragStartRef.current = {
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
+      startMouseX: clientX,
+      startMouseY: clientY,
       startOffsetX: dragOffset.x,
       startOffsetY: dragOffset.y
     };
@@ -761,16 +775,21 @@ export function InteractiveQuoteFormBox({
   // Compute surface style of the quote box
   const alpha = Math.max(0, Math.min(1, (cfg.boxOpacity ?? 92) / 100));
   const getBoxSurfaceStyle = (): React.CSSProperties => {
+    const isSmallScreen = typeof window !== 'undefined' && window.innerWidth < 640;
+    const effectiveOffsetX = isSmallScreen ? Math.max(-20, Math.min(20, dragOffset.x)) : dragOffset.x;
+    const effectiveOffsetY = dragOffset.y;
+    const effectivePadding = isSmallScreen ? Math.min(cfg.boxPaddingPx ?? 32, 20) : (cfg.boxPaddingPx ?? 32);
+
     const base: React.CSSProperties = {
       maxWidth: `${cfg.boxWidthPx || 460}px`,
       width: '100%',
-      padding: `${cfg.boxPaddingPx ?? 32}px`,
+      padding: `${effectivePadding}px`,
       borderRadius: `${cfg.boxRadiusPx ?? 28}px`,
       borderColor: cfg.boxBorderColor || 'rgba(223, 199, 182, 0.22)',
       borderWidth: '1px',
       borderStyle: 'solid',
-      transform: (dragOffset.x !== 0 || dragOffset.y !== 0)
-        ? `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0)`
+      transform: (effectiveOffsetX !== 0 || effectiveOffsetY !== 0)
+        ? `translate3d(${effectiveOffsetX}px, ${effectiveOffsetY}px, 0)`
         : undefined,
       transition: isDragging ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease'
     };
@@ -830,8 +849,9 @@ export function InteractiveQuoteFormBox({
       {isEditorPreview && (
         <div
           onMouseDown={handleStartDrag}
-          className=" -mt-3 mb-4 py-1.5 px-3 rounded-full bg-black/85 border border-white/20 text-white text-[10px] font-bold flex items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none shadow-xl"
-          title="Clique e arraste para posicionar a caixa de orçamento onde desejar"
+          onTouchStart={handleStartDrag}
+          className=" -mt-3 mb-4 py-1.5 px-3 rounded-full bg-black/85 border border-white/20 text-white text-[10px] font-bold flex items-center justify-between gap-3 cursor-grab active:cursor-grabbing select-none shadow-xl touch-none"
+          title="Clique ou toque e arraste para posicionar a caixa de orçamento onde desejar"
         >
           <div className="flex items-center gap-1.5 text-amber-300">
             <Move className="w-3.5 h-3.5" />
@@ -1045,7 +1065,7 @@ export function InteractiveQuoteFormBox({
                                   borderColor: cfg.inputBorderColor
                                 }
                           }
-                          className={`py-3 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          className={`py-3 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[44px] ${
                             isSelected ? 'shadow-md scale-[1.01]' : 'hover:opacity-90'
                           }`}
                         >
@@ -1090,7 +1110,7 @@ export function InteractiveQuoteFormBox({
                                     borderColor: cfg.inputBorderColor
                                   }
                             }
-                            className={`py-3 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            className={`py-3 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[44px] ${
                               isSelected ? 'shadow-md scale-[1.01]' : 'hover:opacity-90'
                             }`}
                           >

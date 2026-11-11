@@ -151,6 +151,17 @@ export function SiteBuilderView({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDrawerCollapsed, setIsDrawerCollapsed] = useState(false);
 
+  // Mobile / Tablet Responsive States
+  const [mobileViewMode, setMobileViewMode] = useState<'preview' | 'editor'>('preview');
+  const [mobileEditorSubtab, setMobileEditorSubtab] = useState<'menu' | 'drawer'>('menu');
+
+  useEffect(() => {
+    // On tablet portrait or small laptop (between 768px and 1024px), default sidebar to collapsed
+    if (typeof window !== 'undefined' && window.innerWidth >= 768 && window.innerWidth < 1024) {
+      setIsSidebarCollapsed(true);
+    }
+  }, []);
+
   // Device & View Modes
   const [deviceMode, setDeviceMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   
@@ -1531,14 +1542,14 @@ export function SiteBuilderView({
       )}
 
       {/* TOP WORKSPACE TOOLBAR */}
-      <header className={`h-16 backdrop-blur-xl border-b px-6 flex items-center justify-between shrink-0 z-50 transition-colors ${
+      <header className={`h-16 backdrop-blur-xl border-b px-3 sm:px-6 flex items-center justify-between shrink-0 z-50 transition-colors ${
         isDarkShell ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white/90 border-gray-200 shadow-sm'
       }`}>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           {setActiveTab && (
             <button 
               onClick={() => setActiveTab('inicio')}
-              className={`p-2 rounded-xl transition-all ${
+              className={`p-1.5 sm:p-2 rounded-xl transition-all ${
                 isDarkShell ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
               }`}
               title="Voltar ao Frame+"
@@ -1547,8 +1558,8 @@ export function SiteBuilderView({
             </button>
           )}
 
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#D05634] text-white flex items-center justify-center font-black shadow-md shadow-[#D05634]/20 overflow-hidden shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-[#D05634] text-white flex items-center justify-center font-black shadow-md shadow-[#D05634]/20 overflow-hidden shrink-0">
               {(siteData.faviconUrl || (typeof window !== 'undefined' ? localStorage.getItem('frame_saved_favicon_url') || '' : '')) ? (
                 <img
                   src={siteData.faviconUrl || (typeof window !== 'undefined' ? localStorage.getItem('frame_saved_favicon_url') || '' : '')}
@@ -1560,7 +1571,7 @@ export function SiteBuilderView({
               )}
             </div>
             <div>
-              <h1 className={`font-black text-sm tracking-tight hidden sm:block ${isDarkShell ? 'text-white' : 'text-gray-900'}`}>
+              <h1 className={`font-black text-xs sm:text-sm tracking-tight hidden sm:block ${isDarkShell ? 'text-white' : 'text-gray-900'}`}>
                 {siteData.title || 'Meu Site Pro'}
               </h1>
               <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider hidden sm:block">
@@ -1575,63 +1586,89 @@ export function SiteBuilderView({
               setSiteData(prev => ({ ...prev, published: next }));
               handleSaveSite({ published: next });
             }}
-            className={`px-2 py-1 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all bg-transparent ${
+            className={`px-1.5 sm:px-2 py-1 text-[10px] font-black uppercase tracking-widest flex items-center gap-1 sm:gap-1.5 transition-all bg-transparent ${
               siteData.published 
                 ? 'text-emerald-600 dark:text-emerald-400' 
                 : 'text-amber-600 dark:text-amber-400'
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${siteData.published ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-            {siteData.published ? 'Publicado' : 'Rascunho'}
+            <span className="hidden xs:inline">{siteData.published ? 'Publicado' : 'Rascunho'}</span>
           </button>
         </div>
 
-        {/* Device Mode Switcher */}
-        <div className={`hidden lg:flex items-center gap-1 p-1 rounded-xl border ${
+        {/* Mobile View Switcher (Preview vs Editor) */}
+        <div className={`flex md:hidden items-center p-0.5 rounded-xl border ${
+          isDarkShell ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-100 border-gray-200'
+        }`}>
+          <button
+            onClick={() => setMobileViewMode('preview')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+              mobileViewMode === 'preview'
+                ? (isDarkShell ? 'bg-zinc-800 text-amber-400 shadow-sm' : 'bg-white text-[#D05634] shadow-sm')
+                : (isDarkShell ? 'text-zinc-400' : 'text-gray-500')
+            }`}
+          >
+            Site
+          </button>
+          <button
+            onClick={() => setMobileViewMode('editor')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+              mobileViewMode === 'editor'
+                ? (isDarkShell ? 'bg-zinc-800 text-[#D05634] shadow-sm' : 'bg-white text-[#D05634] shadow-sm')
+                : (isDarkShell ? 'text-zinc-400' : 'text-gray-500')
+            }`}
+          >
+            Editor
+          </button>
+        </div>
+
+        {/* Device Mode Switcher (Visible on Tablet & Desktop) */}
+        <div className={`hidden md:flex items-center gap-1 p-1 rounded-xl border ${
           isDarkShell ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-100 border-gray-200'
         }`}>
           <button 
             onClick={() => setDeviceMode('desktop')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
               deviceMode === 'desktop' 
                 ? (isDarkShell ? 'bg-zinc-800 text-amber-400 shadow-sm' : 'bg-white text-[#D05634] shadow-sm') 
                 : (isDarkShell ? 'text-zinc-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
             }`}
           >
-            <Monitor className="w-4 h-4" />
-            <span>Desktop</span>
+            <Monitor className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden lg:inline">Desktop</span>
           </button>
           <button 
             onClick={() => setDeviceMode('tablet')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
               deviceMode === 'tablet' 
                 ? (isDarkShell ? 'bg-zinc-800 text-[#D05634] shadow-sm' : 'bg-white text-[#D05634] shadow-sm') 
                 : (isDarkShell ? 'text-zinc-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
             }`}
           >
-            <Tablet className="w-4 h-4" />
-            <span>Tablet</span>
+            <Tablet className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden lg:inline">Tablet</span>
           </button>
           <button 
             onClick={() => setDeviceMode('mobile')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
               deviceMode === 'mobile' 
                 ? (isDarkShell ? 'bg-zinc-800 text-[#D05634] shadow-sm' : 'bg-white text-[#D05634] shadow-sm') 
                 : (isDarkShell ? 'text-zinc-400 hover:text-white' : 'text-gray-500 hover:text-gray-900')
             }`}
           >
-            <Smartphone className="w-4 h-4" />
-            <span>Celular</span>
+            <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden lg:inline">Celular</span>
           </button>
         </div>
 
         {/* Live URL Link, Theme Switcher & Action Buttons */}
-        <div className="flex items-center gap-3">
-          <div className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${
             isDarkShell ? 'bg-zinc-950 border-zinc-800 text-zinc-400' : 'bg-gray-50 border-gray-200 text-gray-600'
           }`}>
             <Link className="w-3.5 h-3.5 text-[#D05634]" />
-            <span className="font-mono text-[11px] truncate max-w-[180px] font-semibold">
+            <span className="font-mono text-[11px] truncate max-w-[140px] font-semibold">
               {siteData.slug}
             </span>
             <button 
@@ -1652,10 +1689,22 @@ export function SiteBuilderView({
             </a>
           </div>
 
+          <a 
+            href={siteLiveUrl} 
+            target="_blank" 
+            rel="noreferrer"
+            className={`lg:hidden p-2 rounded-xl border ${
+              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-gray-100 border-gray-200 text-gray-700'
+            }`}
+            title="Abrir Site"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+
           <button 
             onClick={() => handleSaveSite()}
             disabled={isSaving}
-            className="px-5 py-2.5 rounded-xl bg-[#D05634] hover:bg-[#b84a2b] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[#D05634]/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+            className="px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-[#D05634] hover:bg-[#b84a2b] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[#D05634]/20 flex items-center gap-1.5 sm:gap-2 transition-all active:scale-95 disabled:opacity-50"
           >
             {isSaving ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1664,7 +1713,8 @@ export function SiteBuilderView({
             ) : (
               <Save className="w-4 h-4" />
             )}
-            {isSaving ? 'Salvando...' : saveSuccess ? 'Salvo!' : 'Salvar Alterações'}
+            <span>{isSaving ? 'Salvando...' : saveSuccess ? 'Salvo!' : 'Salvar'}</span>
+            <span className="hidden sm:inline">{!isSaving && !saveSuccess ? ' Alterações' : ''}</span>
           </button>
         </div>
       </header>
@@ -1672,9 +1722,11 @@ export function SiteBuilderView({
       {/* MAIN ARDENA WORKSPACE CONTAINER (FIXED HEIGHT) */}
       <div className="flex-1 h-[calc(100vh-4rem)] flex overflow-hidden">
         
-        {/* ARDENA VERTICAL SIDEBAR MENU (COLLAPSIBLE) */}
+        {/* ARDENA VERTICAL SIDEBAR MENU (COLLAPSIBLE / RESPONSIVE) */}
         <aside className={`${
-          isSidebarCollapsed ? 'w-[68px]' : 'w-[285px]'
+          mobileViewMode === 'editor' && mobileEditorSubtab === 'menu' ? 'w-full flex' : 'hidden md:flex'
+        } ${
+          isSidebarCollapsed ? 'md:w-[68px]' : 'md:w-[285px]'
         } border-r flex flex-col justify-between shrink-0 z-20 shadow-2xl transition-all duration-300 h-full overflow-hidden ${
           isDarkShell 
             ? 'bg-zinc-900/95 backdrop-blur-2xl border-zinc-800/80 text-white' 
@@ -1742,6 +1794,7 @@ export function SiteBuilderView({
                           setSelectedScrollySectionId(sec.id);
                           setActiveMenuId('dobras');
                           setIsDrawerCollapsed(false);
+                          setMobileEditorSubtab('drawer');
                           if (sec.type === 'cta_zoom_whatsapp' || abaLabel.includes('CONTATO')) {
                             setOpenHeroCascades((prev) => ({ ...prev, botoes: true }));
                           }
@@ -1874,6 +1927,7 @@ export function SiteBuilderView({
                           setSelectedScrollySectionId(sec.id);
                           setActiveMenuId('dobras');
                           setIsDrawerCollapsed(false);
+                          setMobileEditorSubtab('drawer');
                         }}
                         className={`w-full p-2 rounded-xl text-center text-[10px] font-black ${
                           isSelected ? 'bg-[#D05634] text-white' : 'text-gray-400 hover:text-white hover:bg-zinc-800'
@@ -1910,6 +1964,7 @@ export function SiteBuilderView({
                     onClick={() => {
                       setActiveMenuId(item.id as any);
                       setIsDrawerCollapsed(false);
+                      setMobileEditorSubtab('drawer');
                     }}
                     className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all relative ${
                       isActive 
@@ -1949,6 +2004,7 @@ export function SiteBuilderView({
                     onClick={() => {
                       setActiveMenuId(item.id as any);
                       setIsDrawerCollapsed(false);
+                      setMobileEditorSubtab('drawer');
                     }}
                     className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all relative ${
                       isActive 
@@ -1982,12 +2038,34 @@ export function SiteBuilderView({
           <div className={`${
             isFullScreenConfigMenu
               ? 'flex-1 w-full flex flex-col z-10 transition-all duration-300'
-              : 'w-[360px] border-r flex flex-col shrink-0 z-10 shadow-xl transition-all duration-300'
+              : 'w-full md:w-[320px] lg:w-[360px] border-r flex flex-col shrink-0 z-10 shadow-xl transition-all duration-300'
+          } ${
+            mobileViewMode === 'editor' && mobileEditorSubtab === 'drawer' ? 'flex' : 'hidden md:flex'
           } ${
             isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
           }`}>
             
-            <div className={`px-6 py-4 border-b flex items-center justify-between shrink-0 ${
+            {/* Mobile Header Switcher inside Drawer */}
+            <div className="flex md:hidden items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-zinc-800 bg-gray-50/80 dark:bg-zinc-950/60 shrink-0">
+              <button
+                type="button"
+                onClick={() => setMobileEditorSubtab('menu')}
+                className="flex items-center gap-1 text-[#D05634] font-black text-xs px-2.5 py-1.5 rounded-xl bg-[#D05634]/10 active:scale-95"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>Menus</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileViewMode('preview')}
+                className="flex items-center gap-1.5 text-white font-bold text-xs px-3 py-1.5 rounded-xl bg-[#D05634] active:scale-95 shadow-md shadow-[#D05634]/20"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Ver Site</span>
+              </button>
+            </div>
+
+            <div className={`px-4 sm:px-6 py-3.5 sm:py-4 border-b flex items-center justify-between shrink-0 ${
               isDarkShell ? 'border-zinc-800' : 'border-gray-200'
             }`}>
               <div className="flex items-center gap-3 truncate pr-2">
@@ -9021,7 +9099,9 @@ export function SiteBuilderView({
 
         {/* RIGHT AREA: REAL-TIME FULL-SCREEN CANVAS PREVIEW (HIDDEN WHEN IN SEO / DOMÍNIO / LEADS FULL-SCREEN CONFIG) */}
         {!isFullScreenConfigMenu && (
-        <main className={`flex-1 p-0 md:p-3 flex flex-col items-center justify-center overflow-hidden relative transition-colors ${
+        <main className={`${
+          mobileViewMode === 'preview' ? 'flex flex-1' : 'hidden md:flex flex-1'
+        } p-0 md:p-3 flex flex-col items-center justify-center overflow-hidden relative transition-colors ${
           isDarkShell ? 'bg-zinc-950' : 'bg-gray-100'
         }`}>
           {/* Expand Drawer Button if collapsed */}
@@ -9041,6 +9121,21 @@ export function SiteBuilderView({
             </button>
           )}
           
+          {/* Mobile Floating Button to toggle Editor */}
+          {mobileViewMode === 'preview' && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileViewMode('editor');
+                setMobileEditorSubtab('menu');
+              }}
+              className="md:hidden fixed bottom-6 right-6 z-50 px-4 py-3 rounded-full bg-[#D05634] text-white font-black text-xs uppercase tracking-wider shadow-2xl shadow-[#D05634]/40 flex items-center gap-2 active:scale-95 border border-white/20"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Editar Site</span>
+            </button>
+          )}
+
           {/* Floating Exit Fullscreen Scrollytelling Test Button */}
           {isFullScreenScrollyTest && (
             <button
@@ -9057,10 +9152,10 @@ export function SiteBuilderView({
             </button>
           )}
 
-          {/* Full Screen Live Viewport (Mac Browser frame completely removed) */}
+          {/* Full Screen Live Viewport (Clean on mobile, framed on desktop device mode) */}
           <div 
-            className={`transition-all duration-300 w-full h-full rounded-2xl shadow-xl overflow-hidden flex flex-col ${
-              isDarkShell ? 'bg-black border border-zinc-800' : 'bg-white border border-gray-200'
+            className={`transition-all duration-300 w-full h-full rounded-none md:rounded-2xl shadow-xl overflow-hidden flex flex-col ${
+              isDarkShell ? 'bg-black border-0 md:border md:border-zinc-800' : 'bg-white border-0 md:border md:border-gray-200'
             } ${
               deviceMode === 'desktop' 
                 ? 'w-full h-full' 
