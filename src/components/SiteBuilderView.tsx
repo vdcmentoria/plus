@@ -75,6 +75,7 @@ import {
   SCROLLY_SECTION_LIBRARY,
   SCROLLY_CATEGORIES,
   FOOTER_EFFECT_CATALOG,
+  QUOTE_EFFECT_CATALOG,
   ScrollyCategoryMeta,
   getThemePresetSections,
   createSectionFromTemplate,
@@ -400,25 +401,31 @@ export function SiteBuilderView({
       };
     };
 
-    const currentNonFooter = currentSections.filter((s) => s.type !== 'custom_footer_section');
+    const currentNonSpecial = currentSections.filter(
+      (s) => s.type !== 'custom_footer_section' && s.type !== 'custom_quote_section'
+    );
+    const currentQuote = currentSections.find((s) => s.type === 'custom_quote_section');
     const currentFooter = currentSections.find((s) => s.type === 'custom_footer_section');
 
-    const targetNonFooter = targetLayoutSections.filter((s) => s.type !== 'custom_footer_section');
+    const targetNonSpecial = targetLayoutSections.filter(
+      (s) => s.type !== 'custom_footer_section' && s.type !== 'custom_quote_section'
+    );
+    const targetQuote = targetLayoutSections.find((s) => s.type === 'custom_quote_section');
     const targetFooter = targetLayoutSections.find((s) => s.type === 'custom_footer_section');
 
     const usedIds = new Set<string>();
-    const adaptedNonFooter: ScrollySectionBlock[] = targetNonFooter.map((tSec, idx) => {
+    const adaptedNonFooter: ScrollySectionBlock[] = targetNonSpecial.map((tSec, idx) => {
       // 1. Try exact ID match if restoring a saved custom layout
       let matched = tSec.id
-        ? currentNonFooter.find((u) => u.id === tSec.id && !usedIds.has(u.id))
+        ? currentNonSpecial.find((u) => u.id === tSec.id && !usedIds.has(u.id))
         : undefined;
       // 2. Try positional match at same index
-      if (!matched && idx < currentNonFooter.length && !usedIds.has(currentNonFooter[idx].id)) {
-        matched = currentNonFooter[idx];
+      if (!matched && idx < currentNonSpecial.length && !usedIds.has(currentNonSpecial[idx].id)) {
+        matched = currentNonSpecial[idx];
       }
       // 3. Try any remaining unused section
       if (!matched) {
-        matched = currentNonFooter.find((u) => !usedIds.has(u.id));
+        matched = currentNonSpecial.find((u) => !usedIds.has(u.id));
       }
       if (matched) {
         usedIds.add(matched.id);
@@ -429,9 +436,9 @@ export function SiteBuilderView({
       return mergeContentWithLayout(created, tSec);
     });
 
-    // Preserve any extra non-footer tabs the user had created beyond targetNonFooter length
-    const primaryPaletteRef = targetNonFooter[0] || targetLayoutSections[0];
-    currentNonFooter.forEach((uSec) => {
+    // Preserve any extra non-footer/non-quote tabs the user had created beyond targetNonSpecial length
+    const primaryPaletteRef = targetNonSpecial[0] || targetLayoutSections[0];
+    currentNonSpecial.forEach((uSec) => {
       if (!usedIds.has(uSec.id)) {
         adaptedNonFooter.push({
           ...uSec,
@@ -443,6 +450,26 @@ export function SiteBuilderView({
         });
       }
     });
+
+    // Handle the Orçamento (custom_quote_section) right before Rodapé
+    let finalQuote: ScrollySectionBlock | null = null;
+    if (currentQuote && targetQuote) {
+      finalQuote = {
+        ...mergeContentWithLayout(currentQuote, targetQuote),
+        type: 'custom_quote_section',
+        quoteEffect: currentQuote.quoteEffect || (targetQuote as any).quoteEffect || 'zoom_out_cinema'
+      };
+    } else if (currentQuote) {
+      finalQuote = {
+        ...currentQuote,
+        type: 'custom_quote_section',
+        headingFont: defaultFonts?.headingFont || primaryPaletteRef?.headingFont || currentQuote.headingFont,
+        bodyFont: defaultFonts?.bodyFont || primaryPaletteRef?.bodyFont || currentQuote.bodyFont
+      };
+    } else if (targetQuote) {
+      const createdQuote = createSectionFromTemplate('custom_quote_section', site);
+      finalQuote = mergeContentWithLayout(createdQuote, targetQuote);
+    }
 
     // Handle the Rodapé (custom_footer_section) at the end
     let finalFooter: ScrollySectionBlock | null = null;
@@ -462,7 +489,8 @@ export function SiteBuilderView({
       finalFooter = mergeContentWithLayout(createdFooter, targetFooter);
     }
 
-    return finalFooter ? [...adaptedNonFooter, finalFooter] : adaptedNonFooter;
+    const withQuote = finalQuote ? [...adaptedNonFooter, finalQuote] : adaptedNonFooter;
+    return finalFooter ? [...withQuote, finalFooter] : withQuote;
   };
 
   const isFelipeAccount =
@@ -858,7 +886,8 @@ export function SiteBuilderView({
     const nextList = activeSections.filter((s) => s.id !== secId);
     updateScrollyConfig({
       sections: nextList,
-      ...(targetSec?.type === 'custom_footer_section' ? { footerDeleted: true } : {})
+      ...(targetSec?.type === 'custom_footer_section' ? { footerDeleted: true } : {}),
+      ...(targetSec?.type === 'custom_quote_section' ? { quoteDeleted: true } : {})
     });
     if (selectedScrollySectionId === secId) {
       setSelectedScrollySectionId(nextList[0]?.id || null);
@@ -932,10 +961,20 @@ export function SiteBuilderView({
     const nextList = [...activeSections];
     if (typeToCreate === 'custom_footer_section') {
       nextList.push(created);
-    } else {
-      // Insert before custom_footer_section (or before cta_zoom_whatsapp) so Rodapé stays at the bottom
+    } else if (typeToCreate === 'custom_quote_section') {
       const footerIdx = nextList.findIndex((s) => s.type === 'custom_footer_section');
       if (footerIdx !== -1) {
+        nextList.splice(footerIdx, 0, created);
+      } else {
+        nextList.push(created);
+      }
+    } else {
+      // Insert before custom_quote_section or custom_footer_section so Orçamento & Rodapé stay at the bottom
+      const quoteIdx = nextList.findIndex((s) => s.type === 'custom_quote_section');
+      const footerIdx = nextList.findIndex((s) => s.type === 'custom_footer_section');
+      if (quoteIdx !== -1) {
+        nextList.splice(quoteIdx, 0, created);
+      } else if (footerIdx !== -1) {
         nextList.splice(footerIdx, 0, created);
       } else if (
         nextList.length > 0 &&
@@ -948,7 +987,8 @@ export function SiteBuilderView({
     }
     updateScrollyConfig({
       sections: nextList,
-      ...(typeToCreate === 'custom_footer_section' ? { footerDeleted: false } : {})
+      ...(typeToCreate === 'custom_footer_section' ? { footerDeleted: false } : {}),
+      ...(typeToCreate === 'custom_quote_section' ? { quoteDeleted: false } : {})
     });
     setSelectedScrollySectionId(created.id);
     setActiveMenuId('dobras');
@@ -1705,6 +1745,15 @@ export function SiteBuilderView({
                           if (sec.type === 'cta_zoom_whatsapp' || abaLabel.includes('CONTATO')) {
                             setOpenHeroCascades((prev) => ({ ...prev, botoes: true }));
                           }
+                          setTimeout(() => {
+                            const viewport = document.querySelector('[data-scrolly-viewport="true"]');
+                            const target =
+                              viewport?.querySelector(`#scrolly-sec-${sec.id}`) ||
+                              document.getElementById(`scrolly-sec-${sec.id}`);
+                            if (target) {
+                              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                          }, 80);
                         }}
                         className={`group w-full flex items-center justify-between px-2.5 py-2 rounded-xl border text-xs cursor-pointer transition-all ${
                           isSelected
@@ -1848,7 +1897,6 @@ export function SiteBuilderView({
               )}
 
               {[
-                { id: 'orcamento', label: 'Orçamento', icon: FileText, badge: 'PRO' },
                 { id: 'temas', label: 'Temas Visuais', icon: Palette },
                 { id: 'fontes', label: 'Tipografia & Fontes', icon: Type },
                 { id: 'cores', label: 'Cores Customizadas', icon: Sliders }
@@ -1862,18 +1910,6 @@ export function SiteBuilderView({
                     onClick={() => {
                       setActiveMenuId(item.id as any);
                       setIsDrawerCollapsed(false);
-                      if (item.id === 'orcamento') {
-                        setTimeout(() => {
-                          const viewport = document.querySelector('[data-scrolly-viewport="true"]');
-                          const target =
-                            viewport?.querySelector('#section-leads') ||
-                            viewport?.querySelector('[id^="section-sec_cta"]') ||
-                            document.getElementById('section-leads');
-                          if (target) {
-                            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          }
-                        }, 120);
-                      }
                     }}
                     className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all relative ${
                       isActive 
@@ -1886,13 +1922,6 @@ export function SiteBuilderView({
                       <Icon className="w-4 h-4 shrink-0" />
                       {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
                     </div>
-                    {!isSidebarCollapsed && (item as any).badge && (
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                        isActive ? 'bg-white/25 text-white' : 'bg-[#D05634]/15 text-[#D05634]'
-                      }`}>
-                        {(item as any).badge}
-                      </span>
-                    )}
                   </button>
                 );
               })}
@@ -2069,6 +2098,7 @@ export function SiteBuilderView({
                 'interactive_gallery_showcase',
                 'client_testimonials',
                 'instagram_feed_banner',
+                'custom_quote_section',
                 'custom_footer_section'
               ].includes(secType);
 
@@ -2079,6 +2109,7 @@ export function SiteBuilderView({
               const usesKicker = secType !== 'layered_pinning_chapters';
 
               const activeFooterEffect = selectedSec.footerEffect || 'editorial_big_typography';
+              const activeQuoteEffect = selectedSec.quoteEffect || 'zoom_out_cinema';
 
               const usesOverlayOpacity =
                 [
@@ -2089,6 +2120,7 @@ export function SiteBuilderView({
                   'bento_zoom_mosaic',
                   'cta_zoom_whatsapp'
                 ].includes(secType) ||
+                (secType === 'custom_quote_section' && activeQuoteEffect !== 'minimal_studio_clean') ||
                 (secType === 'custom_footer_section' && activeFooterEffect === 'curtain_parallax_bg');
 
               const usesPrimaryMedia =
@@ -2102,10 +2134,12 @@ export function SiteBuilderView({
                   'bento_zoom_mosaic',
                   'cta_zoom_whatsapp'
                 ].includes(secType) ||
+                (secType === 'custom_quote_section' && activeQuoteEffect !== 'minimal_studio_clean') ||
                 (secType === 'custom_footer_section' && activeFooterEffect === 'curtain_parallax_bg');
 
               const usesDualPhotos =
                 secType === 'vogue_overlapping_spread' ||
+                (secType === 'custom_quote_section' && activeQuoteEffect === 'editorial_frame_vignette') ||
                 (secType === 'manifesto_word_reveal' && selectedSec.showFloatingSidePhotos !== false);
 
               const usesBeforeAfterPhotos = secType === 'before_after_grading';
@@ -2181,6 +2215,33 @@ export function SiteBuilderView({
                   </div>
 
                   {/* ========================================================
+                      QUANDO FOR A ABA ORÇAMENTO: TODAS AS CONFIGURAÇÕES DA CAIXA DE ORÇAMENTO, LAYOUTS, DRAG & DROP E CRM FRAMEPRO
+                      ======================================================== */}
+                  {secType === 'custom_quote_section' && (
+                    <div className="pb-4 mb-3 border-b border-gray-200 dark:border-zinc-800">
+                      <QuoteBuilderDrawerPanel
+                        siteData={siteData}
+                        isDarkShell={isDarkShell}
+                        userId={user?.crmId || userProfile?.crmId || user?.uid || user?.id || userProfile?.id || user?.email}
+                        userEmail={user?.email || userProfile?.email || siteData.contactEmail}
+                        onChangeQuoteConfig={(nextQuoteConfig: QuoteFormConfig) => {
+                          setSiteData((prev) => {
+                            const updated = {
+                              ...prev,
+                              quoteFormConfig: nextQuoteConfig
+                            };
+                            siteDataRef.current = updated;
+                            return updated;
+                          });
+                        }}
+                        onUpdateQuoteSection={(patch) => {
+                          updateSectionBlock(selectedSec.id, patch);
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* ========================================================
                       CASCATA 0: EFEITOS
                       ======================================================== */}
                   <div className="transition-all">
@@ -2194,7 +2255,7 @@ export function SiteBuilderView({
                       <span className={`text-xs font-bold tracking-tight ${
                         isDarkShell ? 'text-zinc-300 group-hover:text-white' : 'text-gray-700 group-hover:text-gray-900'
                       }`}>
-                        Efeitos
+                        {secType === 'custom_quote_section' ? 'Efeitos Complementares da Aba Orçamento' : 'Efeitos'}
                       </span>
                       <div className="p-1 rounded-lg text-gray-400">
                         {openHeroCascades.efeito ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -2203,8 +2264,8 @@ export function SiteBuilderView({
 
                     {openHeroCascades.efeito && (
                       <div className="px-3 pb-4 pt-2 space-y-4">
-                        {/* Quando NÃO for Rodapé, exibe as categorias e efeitos de dobras normais */}
-                        {secType !== 'custom_footer_section' ? (
+                        {/* Quando NÃO for Rodapé nem Orçamento, exibe as categorias e efeitos de dobras normais */}
+                        {secType !== 'custom_footer_section' && secType !== 'custom_quote_section' ? (
                           <>
                             {/* Abas de Categorias de Scrollytelling */}
                             <div>
@@ -2302,6 +2363,68 @@ export function SiteBuilderView({
                               </div>
                             </div>
                           </>
+                        ) : secType === 'custom_quote_section' ? (
+                          /* Quando for a aba ORÇAMENTO: mostra APENAS os 6 efeitos complementares que funcionam dentro da própria aba Orçamento mantendo sempre a Caixa de Pedido de Orçamento */
+                          <div className="space-y-1.5">
+                            <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">
+                              Efeito Complementar dentro da Aba Orçamento (Mantém sempre a Caixa de Orçamento)
+                            </label>
+                            <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
+                              {QUOTE_EFFECT_CATALOG.map((qEff) => {
+                                const isCurrentQuoteEffect = activeQuoteEffect === qEff.id;
+                                return (
+                                  <button
+                                    key={qEff.id}
+                                    type="button"
+                                    onClick={() =>
+                                      updateSectionBlock(selectedSec.id, {
+                                        type: 'custom_quote_section',
+                                        quoteEffect: qEff.id
+                                      })
+                                    }
+                                    className={`w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
+                                      isCurrentQuoteEffect
+                                        ? 'bg-[#D05634] text-white border-[#D05634] shadow-md'
+                                        : isDarkShell
+                                          ? 'bg-zinc-900/70 border-zinc-800 text-zinc-200 hover:border-[#D05634]'
+                                          : 'bg-white border-gray-200 text-gray-800 hover:border-[#D05634]'
+                                    }`}
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-extrabold truncate">{qEff.label}</span>
+                                        <span
+                                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                            isCurrentQuoteEffect
+                                              ? 'bg-white/20 text-white'
+                                              : 'bg-[#D05634]/15 text-[#D05634]'
+                                          }`}
+                                        >
+                                          {qEff.badge}
+                                        </span>
+                                      </div>
+                                      <p
+                                        className={`text-[10px] line-clamp-2 mt-0.5 ${
+                                          isCurrentQuoteEffect ? 'text-white/85' : 'text-gray-400'
+                                        }`}
+                                      >
+                                        {qEff.desc}
+                                      </p>
+                                    </div>
+                                    <div
+                                      className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                                        isCurrentQuoteEffect
+                                          ? 'border-white bg-white text-[#D05634]'
+                                          : 'border-gray-400'
+                                      }`}
+                                    >
+                                      {isCurrentQuoteEffect && <Check className="w-3 h-3" />}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         ) : (
                           /* Quando for a aba RODAPÉ: mostra APENAS os 6 efeitos que funcionam dentro do próprio Rodapé (sem criar nova aba!) */
                           <div className="space-y-1.5">
@@ -2857,6 +2980,70 @@ export function SiteBuilderView({
                                     }`}
                                   />
                                 </div>
+                              </div>
+                            )}
+
+                            {/* ABA ORÇAMENTO: AJUSTES ESPECÍFICOS DO EFEITO COMPLEMENTAR ATIVO */}
+                            {secType === 'custom_quote_section' && (
+                              <div className="space-y-3">
+                                {activeQuoteEffect === 'marquee_kinetic_bg' && (
+                                  <div className="space-y-2.5">
+                                    <div>
+                                      <label className="block text-[10px] text-gray-400 mb-0.5">
+                                        Frase do Marquee Cinético de Fundo
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={selectedSec.marqueeTopText || ''}
+                                        onChange={(e) =>
+                                          updateSectionBlock(selectedSec.id, { marqueeTopText: e.target.value })
+                                        }
+                                        placeholder="VERIFICAR DISPONIBILIDADE · ORÇAMENTO · AGENDA ABERTA"
+                                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs ${
+                                          isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                        }`}
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="block text-[10px] text-gray-400 mb-0.5">Velocidade</label>
+                                        <select
+                                          value={selectedSec.curtainSpeed || 'normal'}
+                                          onChange={(e) =>
+                                            updateSectionBlock(selectedSec.id, { curtainSpeed: e.target.value as any })
+                                          }
+                                          className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold ${
+                                            isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                          }`}
+                                        >
+                                          <option value="slow">Suave / Lenta</option>
+                                          <option value="normal">Padrão Editorial</option>
+                                          <option value="fast">Rápida / Dinâmica</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] text-gray-400 mb-0.5">
+                                          Opacidade ({selectedSec.marqueeOpacity ?? 18}%)
+                                        </label>
+                                        <input
+                                          type="range"
+                                          min={5}
+                                          max={60}
+                                          value={selectedSec.marqueeOpacity ?? 18}
+                                          onChange={(e) =>
+                                            updateSectionBlock(selectedSec.id, { marqueeOpacity: Number(e.target.value) })
+                                          }
+                                          className="w-full accent-[#D05634] mt-1.5"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                                {activeQuoteEffect !== 'marquee_kinetic_bg' && (
+                                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                                    Efeito complementar ativo dentro da aba <strong>ORÇAMENTO</strong>. Você pode ajustar a foto/vídeo de fundo, máscara escura, títulos e cores nas cascatas abaixo, mantendo sempre a Caixa de Pedido de Orçamento ativa.
+                                  </p>
+                                )}
                               </div>
                             )}
 
@@ -8595,7 +8782,8 @@ export function SiteBuilderView({
               <QuoteBuilderDrawerPanel
                 siteData={siteData}
                 isDarkShell={isDarkShell}
-                userId={user?.uid || user?.id || userProfile?.id || user?.email}
+                userId={user?.crmId || userProfile?.crmId || user?.uid || user?.id || userProfile?.id || user?.email}
+                userEmail={user?.email || userProfile?.email || siteData.contactEmail}
                 onChangeQuoteConfig={(nextQuoteConfig: QuoteFormConfig) => {
                   setSiteData((prev) => {
                     const updated = {
@@ -8605,6 +8793,12 @@ export function SiteBuilderView({
                     siteDataRef.current = updated;
                     return updated;
                   });
+                }}
+                onUpdateQuoteSection={(patch) => {
+                  const qSec = activeSections.find((s) => s.type === 'custom_quote_section');
+                  if (qSec) {
+                    updateSectionBlock(qSec.id, patch);
+                  }
                 }}
               />
             )}
@@ -8623,11 +8817,18 @@ export function SiteBuilderView({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setActiveMenuId('orcamento')}
+                    onClick={() => {
+                      const qSec = activeSections.find((s) => s.type === 'custom_quote_section');
+                      if (qSec) {
+                        setSelectedScrollySectionId(qSec.id);
+                      }
+                      setActiveMenuId('dobras');
+                      setIsDrawerCollapsed(false);
+                    }}
                     className="px-4 py-2 rounded-xl bg-[#D05634] hover:bg-[#b84a2b] text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 shrink-0 shadow-md"
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    <span>Personalizar Caixa de Orçamento & Funil CRM</span>
+                    <span>Abrir Aba Orçamento & Funil CRM</span>
                   </button>
                 </div>
 
@@ -8763,14 +8964,15 @@ export function SiteBuilderView({
                                 type="button"
                                 onClick={async () => {
                                   try {
+                                    const qCfg = siteData.quoteFormConfig as any;
                                     const res = await fetch(`/api/sites/${siteData.id}/leads/${lead.id}/sync-crm`, {
                                       method: 'POST',
                                       headers: { 'Content-Type': 'application/json' },
                                       body: JSON.stringify({
-                                        pipelineId: siteData.quoteFormConfig?.crmConnection?.pipelineId,
-                                        pipelineName: siteData.quoteFormConfig?.crmConnection?.pipelineName,
-                                        columnId: siteData.quoteFormConfig?.crmConnection?.columnId,
-                                        columnName: siteData.quoteFormConfig?.crmConnection?.columnName
+                                        pipelineId: qCfg?.crmPipelineId || qCfg?.crmConnection?.pipelineId,
+                                        pipelineName: qCfg?.crmPipelineName || qCfg?.crmConnection?.pipelineName,
+                                        columnId: qCfg?.crmColumnId || qCfg?.crmConnection?.columnId,
+                                        columnName: qCfg?.crmColumnName || qCfg?.crmConnection?.columnName
                                       })
                                     });
                                     if (res.ok) {
@@ -8885,8 +9087,12 @@ export function SiteBuilderView({
                   if (secId === 'hero' && activeSections.length > 0) {
                     setSelectedScrollySectionId(activeSections[0].id);
                   }
-                  if (secId === 'orcamento') {
-                    setActiveMenuId('orcamento');
+                  if (secId === 'orcamento' || secId === 'leads') {
+                    const qSec = activeSections.find((s) => s.type === 'custom_quote_section');
+                    if (qSec) {
+                      setSelectedScrollySectionId(qSec.id);
+                    }
+                    setActiveMenuId('dobras');
                     return;
                   }
                   const secToMenuMap: Record<string, any> = {
@@ -8894,10 +9100,10 @@ export function SiteBuilderView({
                     portfolio: 'dobras',
                     about: 'dobras',
                     pricing: 'dobras',
-                    leads: 'orcamento',
+                    leads: 'dobras',
                     blog: 'dobras',
                     temas: 'temas',
-                    orcamento: 'orcamento'
+                    orcamento: 'dobras'
                   };
                   setActiveMenuId(secToMenuMap[secId] || 'dobras');
                 }}

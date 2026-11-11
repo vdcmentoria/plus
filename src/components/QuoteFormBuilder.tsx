@@ -19,7 +19,9 @@ import {
   FolderKanban,
   Send,
   Eye,
-  X
+  X,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 
 export type QuoteBoxLayoutPreset =
@@ -114,6 +116,9 @@ export interface QuoteFormConfig {
   submitTextColor: string;
   // Fields list
   fields: QuoteFieldConfig[];
+  // Section Background Image & Dark Overlay Percentage
+  sectionBgImage?: string;
+  sectionBgOverlayOpacity?: number;
   // CRM FramePro Pipeline & Column Connection
   crmIntegrationEnabled: boolean;
   crmOrigin?: string;
@@ -290,11 +295,12 @@ export const DEFAULT_QUOTE_FORM_CONFIG: QuoteFormConfig = {
   submitBgColor: '#DFC7B6',
   submitTextColor: '#231B18',
   fields: ATELIER_CHAMPAGNE_FIELDS,
+  sectionBgOverlayOpacity: 62,
   crmIntegrationEnabled: true,
-  crmPipelineId: 'pipe_casamentos',
-  crmPipelineName: 'Funil Principal · Casamentos & Eventos',
-  crmColumnId: 'col_novo_lead',
-  crmColumnName: 'Novo Lead (Orçamento Site)'
+  crmPipelineId: 'default_crm_pipeline',
+  crmPipelineName: 'Funil Principal (FramePRO CRM)',
+  crmColumnId: 'novo_lead',
+  crmColumnName: 'Novos Leads'
 };
 
 export function resolveQuoteFormConfig(site: any): QuoteFormConfig {
@@ -1235,21 +1241,29 @@ export function QuoteBuilderDrawerPanel({
   siteData,
   isDarkShell,
   userId,
-  onChangeQuoteConfig
+  userEmail,
+  onChangeQuoteConfig,
+  onUpdateQuoteSection
 }: {
   siteData: any;
   isDarkShell: boolean;
   userId?: string;
+  userEmail?: string;
   onChangeQuoteConfig: (nextCfg: QuoteFormConfig) => void;
+  onUpdateQuoteSection?: (patch: { primaryImage?: string; overlayOpacity?: number }) => void;
 }) {
   const cfg = resolveQuoteFormConfig(siteData);
-  const [subTab, setSubTab] = useState<'layouts' | 'caixa' | 'campos' | 'crm'>('layouts');
+  const [openMenu, setOpenMenu] = useState<'crm' | 'layout' | null>('crm');
+  const [subTab, setSubTab] = useState<'layouts' | 'caixa' | 'campos'>('layouts');
   const [expandedFieldId, setExpandedFieldId] = useState<string | null>(cfg.fields[0]?.id || null);
   const [newOptionInputs, setNewOptionInputs] = useState<Record<string, string>>({});
+  const [uploadingBg, setUploadingBg] = useState(false);
 
   // CRM Pipelines State
   const [pipelines, setPipelines] = useState<CrmPipelineItem[]>([]);
   const [loadingPipelines, setLoadingPipelines] = useState(false);
+  const [crmLiveSynced, setCrmLiveSynced] = useState(false);
+  const [showManageFunnels, setShowManageFunnels] = useState(false);
   const [newPipelineName, setNewPipelineName] = useState('');
   const [newColumnName, setNewColumnName] = useState('');
 
@@ -1260,13 +1274,84 @@ export function QuoteBuilderDrawerPanel({
     });
   };
 
+  // Resolve current background image and darkening % from either quoteFormConfig or custom_quote_section
+  const quoteSecInSite = (siteData?.scrollytellingConfig?.sections || []).find(
+    (s: any) => s.type === 'custom_quote_section'
+  );
+  const DEFAULT_QUOTE_BG_IMAGE =
+    'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1800&q=85';
+  const currentBgImage =
+    cfg.sectionBgImage !== undefined
+      ? cfg.sectionBgImage
+      : quoteSecInSite?.primaryImage || DEFAULT_QUOTE_BG_IMAGE;
+  const currentOverlayOpacity =
+    cfg.sectionBgOverlayOpacity !== undefined
+      ? Number(cfg.sectionBgOverlayOpacity)
+      : quoteSecInSite?.overlayOpacity !== undefined
+        ? Number(quoteSecInSite.overlayOpacity)
+        : 62;
+
+  const handleUpdateBackground = (nextImg?: string, nextOverlay?: number) => {
+    const patchCfg: Partial<QuoteFormConfig> = {};
+    const patchSec: { primaryImage?: string; overlayOpacity?: number } = {};
+    if (nextImg !== undefined) {
+      patchCfg.sectionBgImage = nextImg;
+      patchSec.primaryImage = nextImg;
+    }
+    if (nextOverlay !== undefined) {
+      patchCfg.sectionBgOverlayOpacity = nextOverlay;
+      patchSec.overlayOpacity = nextOverlay;
+    }
+    updateCfg(patchCfg);
+    if (onUpdateQuoteSection) {
+      onUpdateQuoteSection(patchSec);
+    }
+  };
+
+  const handleUploadBgFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingBg(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.url) {
+          handleUpdateBackground(data.url, undefined);
+          setUploadingBg(false);
+          return;
+        }
+      }
+      // Fallback to local Data URL if upload endpoint fails
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          handleUpdateBackground(reader.result, undefined);
+        }
+        setUploadingBg(false);
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      setUploadingBg(false);
+    }
+  };
+
   const fetchCrmPipelines = async () => {
     setLoadingPipelines(true);
     try {
       const uid = userId || siteData.ownerId || 'default';
-      const res = await fetch(`/api/crm/pipelines?userId=${encodeURIComponent(uid)}`);
+      const email = userEmail || siteData.ownerEmail || siteData.contactEmail || (String(uid).includes('@') ? uid : '');
+      const res = await fetch(
+        `/api/crm/pipelines?userId=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}`
+      );
       if (res.ok) {
         const data = await res.json();
+        setCrmLiveSynced(Boolean(data.liveSynced));
         if (Array.isArray(data.pipelines) && data.pipelines.length > 0) {
           setPipelines(data.pipelines);
         }
@@ -1280,16 +1365,17 @@ export function QuoteBuilderDrawerPanel({
 
   useEffect(() => {
     fetchCrmPipelines();
-  }, [userId, siteData.ownerId]);
+  }, [userId, userEmail, siteData.ownerId]);
 
   const handleSavePipelinesToServer = async (nextPipelines: CrmPipelineItem[]) => {
     setPipelines(nextPipelines);
     try {
       const uid = userId || siteData.ownerId || 'default';
+      const email = userEmail || siteData.ownerEmail || siteData.contactEmail || (String(uid).includes('@') ? uid : '');
       await fetch('/api/crm/pipelines', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: uid, pipelines: nextPipelines })
+        body: JSON.stringify({ userId: uid, email, pipelines: nextPipelines })
       });
     } catch {}
   };
@@ -1351,74 +1437,466 @@ export function QuoteBuilderDrawerPanel({
 
   const activePipeline =
     pipelines.find((p) => p.id === cfg.crmPipelineId) || pipelines[0] || {
-      id: 'pipe_casamentos',
-      name: 'Funil Principal · Casamentos & Eventos',
-      columns: [{ id: 'col_novo_lead', name: 'Novo Lead (Orçamento Site)' }]
+      id: 'default_crm_pipeline',
+      name: 'Funil Principal (FramePRO CRM)',
+      columns: [{ id: 'novo_lead', name: 'Novos Leads' }]
     };
 
+  const activeColumn =
+    (activePipeline.columns || []).find((c) => c.id === cfg.crmColumnId) ||
+    activePipeline.columns?.[0] || {
+      id: 'novo_lead',
+      name: 'Novos Leads'
+    };
+
+  const activePresetName =
+    QUOTE_LAYOUT_PRESETS.find((p) => p.id === cfg.layoutPreset)?.name || 'Personalizado';
+
   return (
-    <div className="space-y-5">
-      {/* Sub-Navigation Pills */}
+    <div className="space-y-2.5">
+      {/* ====================================================================
+          MENU DROPDOWN 1: CONEXÃO CRM
+          ==================================================================== */}
       <div
-        className={`grid grid-cols-4 gap-1 p-1 rounded-2xl border ${
-          isDarkShell ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-100 border-gray-200'
+        className={`rounded-2xl border overflow-hidden transition-all ${
+          isDarkShell ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white border-gray-200 shadow-sm'
         }`}
       >
-        {[
-          { id: 'layouts', label: 'Layouts', icon: Sparkles },
-          { id: 'caixa', label: 'Caixa & Drag', icon: Sliders },
-          { id: 'campos', label: `Lacunas (${cfg.fields.length})`, icon: Layers },
-          { id: 'crm', label: 'CRM Funil', icon: FolderKanban }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const active = subTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSubTab(tab.id as any)}
-              className={`py-2 px-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
-                active
-                  ? 'bg-[#D05634] text-white shadow-md'
-                  : isDarkShell
-                    ? 'text-zinc-400 hover:text-white'
-                    : 'text-gray-600 hover:text-black'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span className="truncate max-w-full">{tab.label}</span>
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={() => setOpenMenu((prev) => (prev === 'crm' ? null : 'crm'))}
+          className={`w-full px-3.5 py-3 flex items-center justify-between text-left transition-colors cursor-pointer ${
+            isDarkShell ? 'hover:bg-zinc-900' : 'hover:bg-gray-50'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-xl bg-[#D05634]/15 text-[#D05634] flex items-center justify-center shrink-0">
+              <FolderKanban className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className={`text-xs font-black uppercase tracking-wider ${isDarkShell ? 'text-white' : 'text-gray-900'}`}>
+                  CONEXÃO CRM
+                </span>
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    cfg.crmIntegrationEnabled !== false ? 'bg-emerald-500' : 'bg-gray-400'
+                  }`}
+                />
+              </div>
+              <span className="block text-[10px] text-gray-500 dark:text-zinc-400 truncate">
+                {activePipeline.name} → {activeColumn.name}
+              </span>
+            </div>
+          </div>
+          <div className="p-1 rounded-lg text-gray-400 shrink-0">
+            {openMenu === 'crm' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {openMenu === 'crm' && (
+          <div className="px-3.5 pb-4 pt-2 border-t border-gray-100 dark:border-zinc-800/80 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 truncate">
+                  {crmLiveSynced ? 'Funis Sincronizados com FramePRO CRM' : 'API Nativa FramePRO CRM Ativa'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={fetchCrmPipelines}
+                className={`px-2 py-1 rounded-lg border text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer shrink-0 ${
+                  isDarkShell
+                    ? 'border-zinc-800 bg-zinc-900 hover:border-[#D05634] text-zinc-300'
+                    : 'border-gray-200 bg-gray-50 hover:border-[#D05634] text-gray-700'
+                }`}
+                title="Sincronizar Funis e Colunas do FramePRO CRM"
+              >
+                <RefreshCw className={`w-3 h-3 ${loadingPipelines ? 'animate-spin text-[#D05634]' : ''}`} />
+                <span>Sincronizar</span>
+              </button>
+            </div>
+
+            <label className="flex items-center justify-between gap-2 py-1 cursor-pointer">
+              <span className="text-[11px] font-bold text-gray-700 dark:text-zinc-300">
+                Enviar leads automaticamente para o CRM
+              </span>
+              <input
+                type="checkbox"
+                checked={cfg.crmIntegrationEnabled !== false}
+                onChange={(e) => updateCfg({ crmIntegrationEnabled: e.target.checked })}
+                className="w-4 h-4 accent-[#D05634]"
+              />
+            </label>
+
+            {/* Seletor de Pipeline */}
+            <div className="space-y-1">
+              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">
+                1. Pipeline (Funil do FramePRO CRM)
+              </label>
+              <select
+                value={activePipeline.id}
+                onChange={(e) => {
+                  const found = pipelines.find((p) => p.id === e.target.value);
+                  if (found) {
+                    const firstCol = found.columns[0] || { id: 'novo_lead', name: 'Novos Leads' };
+                    updateCfg({
+                      crmPipelineId: found.id,
+                      crmPipelineName: found.name,
+                      crmColumnId: firstCol.id,
+                      crmColumnName: firstCol.name
+                    });
+                  }
+                }}
+                className={`w-full px-3 py-2 rounded-xl border text-xs font-bold outline-none focus:border-[#D05634] transition-colors ${
+                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'
+                }`}
+              >
+                {pipelines.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Seletor de Coluna */}
+            <div className="space-y-1">
+              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">
+                2. Coluna Específica (Etapa de Entrada do Lead)
+              </label>
+              <select
+                value={activeColumn.id}
+                onChange={(e) => {
+                  const foundCol = (activePipeline.columns || []).find((c) => c.id === e.target.value);
+                  if (foundCol) {
+                    updateCfg({
+                      crmPipelineId: activePipeline.id,
+                      crmPipelineName: activePipeline.name,
+                      crmColumnId: foundCol.id,
+                      crmColumnName: foundCol.name
+                    });
+                  }
+                }}
+                className={`w-full px-3 py-2 rounded-xl border text-xs font-bold outline-none focus:border-[#D05634] transition-colors ${
+                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'
+                }`}
+              >
+                {(activePipeline.columns || []).map((col, idx) => (
+                  <option key={col.id} value={col.id}>
+                    {idx + 1}. {col.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Gerenciar / Criar Funil ou Coluna Manualmente */}
+            <div className="pt-1 border-t border-gray-100 dark:border-zinc-800/80">
+              <button
+                type="button"
+                onClick={() => setShowManageFunnels((v) => !v)}
+                className="w-full flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-[#D05634] py-1 cursor-pointer"
+              >
+                <span>+ Gerenciar / Criar Funis ou Colunas</span>
+                {showManageFunnels ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+
+              {showManageFunnels && (
+                <div className="space-y-2.5 pt-2">
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-gray-400">
+                      + Nova Coluna em "{activePipeline.name}"
+                    </label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={newColumnName}
+                        onChange={(e) => setNewColumnName(e.target.value)}
+                        placeholder="Ex: Qualificação Site"
+                        className={`flex-1 px-2.5 py-1.5 rounded-xl border text-xs ${
+                          isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = newColumnName.trim();
+                          if (!clean) return;
+                          const newCol: CrmColumnItem = {
+                            id: `col_${Date.now()}`,
+                            name: clean,
+                            order: activePipeline.columns.length
+                          };
+                          const nextPipes = pipelines.map((p) =>
+                            p.id === activePipeline.id ? { ...p, columns: [...p.columns, newCol] } : p
+                          );
+                          handleSavePipelinesToServer(nextPipes);
+                          updateCfg({
+                            crmColumnId: newCol.id,
+                            crmColumnName: newCol.name
+                          });
+                          setNewColumnName('');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-[#D05634] text-white text-xs font-bold cursor-pointer"
+                      >
+                        Adicionar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-gray-400">
+                      + Novo Pipeline (Funil)
+                    </label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={newPipelineName}
+                        onChange={(e) => setNewPipelineName(e.target.value)}
+                        placeholder="Ex: Funil Casamentos"
+                        className={`flex-1 px-2.5 py-1.5 rounded-xl border text-xs ${
+                          isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = newPipelineName.trim();
+                          if (!clean) return;
+                          const newPipe: CrmPipelineItem = {
+                            id: `pipe_${Date.now()}`,
+                            name: clean,
+                            columns: [
+                              { id: `col_${Date.now()}_1`, name: 'Novos Leads', order: 0 },
+                              { id: `col_${Date.now()}_2`, name: 'Proposta Enviada', order: 1 },
+                              { id: `col_${Date.now()}_3`, name: 'Fechado', order: 2 }
+                            ]
+                          };
+                          const nextPipes = [...pipelines, newPipe];
+                          handleSavePipelinesToServer(nextPipes);
+                          updateCfg({
+                            crmPipelineId: newPipe.id,
+                            crmPipelineName: newPipe.name,
+                            crmColumnId: newPipe.columns[0].id,
+                            crmColumnName: newPipe.columns[0].name
+                          });
+                          setNewPipelineName('');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold cursor-pointer"
+                      >
+                        Criar Funil
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* SUBTAB 1: LAYOUTS & TEMAS DE ORÇAMENTO */}
-      {subTab === 'layouts' && (
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="block text-[10px] font-black uppercase tracking-widest text-[#D05634]">
-              Modelos de Caixa de Orçamento
-            </label>
-            <p className="text-[11px] text-gray-500 dark:text-zinc-400 leading-relaxed">
-              Escolha o design da caixa de pedido de orçamento. O modelo <strong>Atelier Champagne</strong> replica exatamente o layout editorial da Foto 2.
-            </p>
+      {/* ====================================================================
+          MENU DROPDOWN 2: LAYOUT (FUNDO, ESCURECIMENTO, MODELOS, CAIXA & LACUNAS)
+          ==================================================================== */}
+      <div
+        className={`rounded-2xl border overflow-hidden transition-all ${
+          isDarkShell ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white border-gray-200 shadow-sm'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setOpenMenu((prev) => (prev === 'layout' ? null : 'layout'))}
+          className={`w-full px-3.5 py-3 flex items-center justify-between text-left transition-colors cursor-pointer ${
+            isDarkShell ? 'hover:bg-zinc-900' : 'hover:bg-gray-50'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-xl bg-[#D05634]/15 text-[#D05634] flex items-center justify-center shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className={`block text-xs font-black uppercase tracking-wider ${isDarkShell ? 'text-white' : 'text-gray-900'}`}>
+                LAYOUT
+              </span>
+              <span className="block text-[10px] text-gray-500 dark:text-zinc-400 truncate">
+                {activePresetName} • Escurecimento {currentOverlayOpacity}%
+              </span>
+            </div>
+          </div>
+          <div className="p-1 rounded-lg text-gray-400 shrink-0">
+            {openMenu === 'layout' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
 
-            <div className="space-y-2.5 pt-1">
-              {QUOTE_LAYOUT_PRESETS.map((preset) => {
-                const isSelected = cfg.layoutPreset === preset.id;
-                return (
+        {openMenu === 'layout' && (
+          <div className="px-3.5 pb-4 pt-3 border-t border-gray-100 dark:border-zinc-800/80 space-y-4">
+            {/* 1. IMAGEM DE FUNDO & PORCENTAGEM DO EFEITO ESCURECIDO */}
+            <div
+              className={`p-3.5 rounded-2xl border space-y-3 ${
+                isDarkShell ? 'bg-zinc-900/70 border-zinc-800' : 'bg-gray-50 border-gray-200'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-[#D05634]" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#D05634]">
+                    Imagem de Fundo & Escurecimento
+                  </span>
+                </div>
+                {currentBgImage && currentBgImage !== DEFAULT_QUOTE_BG_IMAGE && (
                   <button
-                    key={preset.id}
                     type="button"
-                    onClick={() => updateCfg(preset.apply(cfg))}
-                    className={`w-full p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-[#D05634] bg-[#D05634]/10 shadow-sm'
-                        : isDarkShell
-                          ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
-                          : 'bg-gray-50 border-gray-200 hover:border-gray-300'
-                    }`}
+                    onClick={() => handleUpdateBackground(DEFAULT_QUOTE_BG_IMAGE, undefined)}
+                    className="text-[10px] font-bold text-gray-400 hover:text-[#D05634] cursor-pointer"
                   >
+                    Restaurar Padrão
+                  </button>
+                )}
+              </div>
+
+              {/* Preview da Imagem de Fundo com o Escurecimento ao vivo */}
+              {currentBgImage && currentBgImage !== 'none' && (
+                <div className="relative h-24 w-full rounded-xl overflow-hidden border border-white/10">
+                  <img
+                    src={currentBgImage}
+                    alt="Fundo Orçamento"
+                    className="w-full h-full object-cover"
+                  />
+                  <div
+                    className="absolute inset-0 bg-black transition-opacity"
+                    style={{ opacity: Math.max(0, Math.min(100, currentOverlayOpacity)) / 100 }}
+                  />
+                  <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between text-[10px] font-bold text-white drop-shadow">
+                    <span>Preview do Fundo</span>
+                    <span className="px-2 py-0.5 rounded-full bg-black/60 font-mono">
+                      Escurecido: {currentOverlayOpacity}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload ou URL da Imagem de Fundo */}
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold uppercase text-gray-400">
+                  Alterar Imagem de Fundo
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={currentBgImage === 'none' ? '' : currentBgImage}
+                    onChange={(e) => handleUpdateBackground(e.target.value || 'none', undefined)}
+                    placeholder="Cole a URL da imagem ou envie do computador..."
+                    className={`flex-1 px-2.5 py-2 rounded-xl border text-xs font-mono ${
+                      isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                    }`}
+                  />
+                  <label className="px-3 py-2 rounded-xl bg-[#D05634] hover:bg-[#b84a2b] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{uploadingBg ? '...' : 'Foto'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleUploadBgFile}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Controle de Porcentagem do Efeito Escurecido (0% a 95%) */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">
+                    Efeito Escurecido na Imagem (%)
+                  </label>
+                  <span className="text-xs font-black font-mono text-[#D05634]">
+                    {currentOverlayOpacity}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={95}
+                  value={currentOverlayOpacity}
+                  onChange={(e) => handleUpdateBackground(undefined, Number(e.target.value))}
+                  className="w-full accent-[#D05634] cursor-pointer"
+                />
+                <div className="grid grid-cols-5 gap-1 pt-0.5">
+                  {[
+                    { val: 0, label: '0%' },
+                    { val: 25, label: '25%' },
+                    { val: 50, label: '50%' },
+                    { val: 65, label: '65%' },
+                    { val: 85, label: '85%' }
+                  ].map((preset) => {
+                    const isCur = currentOverlayOpacity === preset.val;
+                    return (
+                      <button
+                        key={preset.val}
+                        type="button"
+                        onClick={() => handleUpdateBackground(undefined, preset.val)}
+                        className={`py-1 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
+                          isCur
+                            ? 'bg-[#D05634] text-white border-[#D05634]'
+                            : isDarkShell
+                              ? 'bg-zinc-950 border-zinc-800 text-zinc-300'
+                              : 'bg-white border-gray-200 text-gray-700'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* 2. SELETOR INTERNO DE CONFIGURAÇÃO DO LAYOUT DA CAIXA */}
+            <div className="space-y-1.5">
+              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">
+                Configurar Parte do Layout da Caixa
+              </label>
+              <select
+                value={subTab}
+                onChange={(e) => setSubTab(e.target.value as any)}
+                className={`w-full px-3 py-2.5 rounded-xl border text-xs font-bold outline-none focus:border-[#D05634] ${
+                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'
+                }`}
+              >
+                <option value="layouts">1. Modelos de Caixa & Botão de Envio</option>
+                <option value="caixa">2. Estilo da Caixa, Cores, Fontes & Drag-and-Drop</option>
+                <option value="campos">3. Lacunas / Campos do Formulário ({cfg.fields.length})</option>
+              </select>
+            </div>
+
+            {/* SUBTAB 1: LAYOUTS & TEMAS DE ORÇAMENTO */}
+            {subTab === 'layouts' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-[#D05634]">
+                    Modelos de Caixa de Orçamento
+                  </label>
+                  <p className="text-[11px] text-gray-500 dark:text-zinc-400 leading-relaxed">
+                    Escolha o design da caixa de pedido de orçamento. O modelo <strong>Atelier Champagne</strong> replica exatamente o layout editorial da Foto 2.
+                  </p>
+
+                  <div className="space-y-2.5 pt-1">
+                    {QUOTE_LAYOUT_PRESETS.map((preset) => {
+                      const isSelected = cfg.layoutPreset === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => updateCfg(preset.apply(cfg))}
+                          className={`w-full p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'border-[#D05634] bg-[#D05634]/10 shadow-sm'
+                              : isDarkShell
+                                ? 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+                                : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-xs font-black text-gray-900 dark:text-white">
                         {preset.name}
@@ -2148,217 +2626,9 @@ export function QuoteBuilderDrawerPanel({
           </div>
         </div>
       )}
-
-      {/* SUBTAB 4: CONEXÃO COM PIPELINES E COLUNAS DO CRM FRAMEPRO */}
-      {subTab === 'crm' && (
-        <div className="space-y-4">
-          <div
-            className={`p-4 rounded-2xl border space-y-3 ${
-              isDarkShell ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">
-                  Formulário PRO + FramePRO CRM Conectado
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={fetchCrmPipelines}
-                className="p-1.5 rounded-lg border border-gray-200 dark:border-zinc-800 text-xs flex items-center gap-1 hover:border-[#D05634] cursor-pointer"
-                title="Sincronizar Funis e Colunas do CRM"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingPipelines ? 'animate-spin text-[#D05634]' : ''}`} />
-              </button>
-            </div>
-
-            <p className="text-[11px] text-gray-500 dark:text-zinc-400 leading-relaxed">
-              Cada orçamento respondido no seu site vai para a aba <strong>Leads Formulário PRO</strong> e também cria automaticamente um Lead dentro do <strong>CRM FramePRO</strong> no Funil (Pipeline) e Coluna selecionados abaixo:
-            </p>
-
-            <label className="flex items-center justify-between gap-2 pt-1 cursor-pointer">
-              <span className="text-xs font-bold">Enviar automaticamente para o CRM FramePRO</span>
-              <input
-                type="checkbox"
-                checked={cfg.crmIntegrationEnabled !== false}
-                onChange={(e) => updateCfg({ crmIntegrationEnabled: e.target.checked })}
-                className="w-4 h-4 accent-[#D05634]"
-              />
-            </label>
-
-            {/* Seletor de Pipeline (Funil) */}
-            <div className="space-y-1.5 pt-2">
-              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">
-                1. Escolha o Pipeline (Funil do CRM)
-              </label>
-              <select
-                value={activePipeline.id}
-                onChange={(e) => {
-                  const found = pipelines.find((p) => p.id === e.target.value);
-                  if (found) {
-                    const firstCol = found.columns[0] || { id: 'col_novo_lead', name: 'Novo Lead' };
-                    updateCfg({
-                      crmPipelineId: found.id,
-                      crmPipelineName: found.name,
-                      crmColumnId: firstCol.id,
-                      crmColumnName: firstCol.name
-                    });
-                  }
-                }}
-                className={`w-full px-3 py-2.5 rounded-xl border text-xs font-bold ${
-                  isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                }`}
-              >
-                {pipelines.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Seletor de Coluna (Etapa do Kanban no CRM) */}
-            <div className="space-y-1.5 pt-1">
-              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-400">
-                2. Escolha a Coluna (Etapa onde o Lead vai cair)
-              </label>
-              <div className="grid grid-cols-1 gap-1.5">
-                {(activePipeline.columns || []).map((col, cIdx) => {
-                  const isColSelected = cfg.crmColumnId === col.id;
-                  return (
-                    <button
-                      key={col.id}
-                      type="button"
-                      onClick={() =>
-                        updateCfg({
-                          crmPipelineId: activePipeline.id,
-                          crmPipelineName: activePipeline.name,
-                          crmColumnId: col.id,
-                          crmColumnName: col.name
-                        })
-                      }
-                      className={`w-full px-3 py-2.5 rounded-xl border text-left text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
-                        isColSelected
-                          ? 'border-[#D05634] bg-[#D05634]/15 text-[#D05634]'
-                          : isDarkShell
-                            ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700'
-                            : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-black/20 flex items-center justify-center text-[10px] font-mono">
-                          {cIdx + 1}
-                        </span>
-                        <span>{col.name}</span>
-                      </div>
-                      {isColSelected && <Check className="w-4 h-4 text-[#D05634]" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
-
-          {/* Adicionar Novo Pipeline ou Coluna Personalizada */}
-          <div
-            className={`p-4 rounded-2xl border space-y-3 ${
-              isDarkShell ? 'bg-zinc-950 border-zinc-800' : 'bg-gray-50 border-gray-200'
-            }`}
-          >
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 block">
-              Gerenciar Pipelines & Colunas Sincronizadas
-            </span>
-
-            <div className="space-y-2">
-              <label className="block text-[10px] font-bold text-gray-400">
-                + Adicionar Nova Coluna em "{activePipeline.name}"
-              </label>
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={newColumnName}
-                  onChange={(e) => setNewColumnName(e.target.value)}
-                  placeholder="Ex: Qualificação Site"
-                  className={`flex-1 px-3 py-2 rounded-xl border text-xs ${
-                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const clean = newColumnName.trim();
-                    if (!clean) return;
-                    const newCol: CrmColumnItem = {
-                      id: `col_${Date.now()}`,
-                      name: clean,
-                      order: activePipeline.columns.length
-                    };
-                    const nextPipes = pipelines.map((p) =>
-                      p.id === activePipeline.id ? { ...p, columns: [...p.columns, newCol] } : p
-                    );
-                    handleSavePipelinesToServer(nextPipes);
-                    updateCfg({
-                      crmColumnId: newCol.id,
-                      crmColumnName: newCol.name
-                    });
-                    setNewColumnName('');
-                  }}
-                  className="px-3 py-2 rounded-xl bg-[#D05634] text-white text-xs font-bold cursor-pointer"
-                >
-                  Criar Coluna
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-2 border-t border-gray-200 dark:border-zinc-800">
-              <label className="block text-[10px] font-bold text-gray-400">
-                + Criar Novo Pipeline (Funil)
-              </label>
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={newPipelineName}
-                  onChange={(e) => setNewPipelineName(e.target.value)}
-                  placeholder="Ex: Funil Casamentos 2027"
-                  className={`flex-1 px-3 py-2 rounded-xl border text-xs ${
-                    isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-black'
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const clean = newPipelineName.trim();
-                    if (!clean) return;
-                    const newPipe: CrmPipelineItem = {
-                      id: `pipe_${Date.now()}`,
-                      name: clean,
-                      columns: [
-                        { id: `col_${Date.now()}_1`, name: 'Novo Lead (Orçamento Site)', order: 0 },
-                        { id: `col_${Date.now()}_2`, name: 'Proposta Enviada', order: 1 },
-                        { id: `col_${Date.now()}_3`, name: 'Fechado', order: 2 }
-                      ]
-                    };
-                    const nextPipes = [...pipelines, newPipe];
-                    handleSavePipelinesToServer(nextPipes);
-                    updateCfg({
-                      crmPipelineId: newPipe.id,
-                      crmPipelineName: newPipe.name,
-                      crmColumnId: newPipe.columns[0].id,
-                      crmColumnName: newPipe.columns[0].name
-                    });
-                    setNewPipelineName('');
-                  }}
-                  className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold cursor-pointer"
-                >
-                  Criar Funil
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

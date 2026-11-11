@@ -746,11 +746,21 @@ export function PublicWebsiteView({
       if (el) return el;
     }
 
-    // Contato / Orçamento / Leads
-    if (lower.includes('contat') || lower.includes('orcament') || lower.includes('orçamento') || lower.includes('lead') || lower.includes('agenda')) {
+    // Orçamento
+    if (lower.includes('orcament') || lower.includes('orçamento') || lower.includes('quote')) {
+      el = document.querySelector('[data-section-type="custom_quote_section"]') ||
+           document.getElementById('scrolly-sec-leads') ||
+           document.getElementById('section-leads') ||
+           document.querySelector('[data-section-type="cta_zoom_whatsapp"]');
+      if (el) return el;
+    }
+
+    // Contato / Leads
+    if (lower.includes('contat') || lower.includes('lead') || lower.includes('agenda')) {
       el = document.getElementById('scrolly-sec-contact') ||
            document.getElementById('scrolly-sec-leads') ||
            document.querySelector('[data-section-type="cta_zoom_whatsapp"]') ||
+           document.querySelector('[data-section-type="custom_quote_section"]') ||
            document.querySelector('[data-section-type="leads"]') ||
            document.querySelector('[data-section-type="custom_footer_section"]');
       if (el) return el;
@@ -914,17 +924,6 @@ export function PublicWebsiteView({
               )}
             </nav>
 
-            <div className="hidden md:flex items-center">
-              <button 
-                onClick={handleNavCtaClick}
-                className={`px-5 py-2.5 rounded-xl text-xs shadow-lg transition-transform hover:scale-[1.02] flex items-center gap-2 cursor-pointer ${navTextTransformClass} ${navLetterSpacingClass}`}
-                style={getNavCtaStyle()}
-              >
-                <Send className="w-3.5 h-3.5" />
-                {site.customNavLabels?.cta || 'Orçamento'}
-              </button>
-            </div>
-
             <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
               {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -945,13 +944,6 @@ export function PublicWebsiteView({
                 {label}
               </button>
             ))}
-            <button 
-              onClick={handleNavCtaClick} 
-              className={`px-4 py-2 rounded-lg text-xs transition-transform hover:scale-105 ${navTextTransformClass} ${navLetterSpacingClass}`}
-              style={getNavCtaStyle()}
-            >
-              {site.customNavLabels?.cta || 'Contato'}
-            </button>
           </nav>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
             <Menu className="w-6 h-6" />
@@ -979,13 +971,6 @@ export function PublicWebsiteView({
                 {label}
               </button>
             ))}
-            <button 
-              onClick={handleNavCtaClick} 
-              className={`px-4 py-2 rounded-lg text-xs font-bold shadow-md transition-all ${navTextTransformClass} ${navLetterSpacingClass}`}
-              style={getNavCtaStyle()}
-            >
-              {site.customNavLabels?.cta || 'Contato'}
-            </button>
           </div>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
             <Menu className="w-6 h-6" />
@@ -1006,13 +991,6 @@ export function PublicWebsiteView({
                 {label}
               </button>
             ))}
-            <button 
-              onClick={handleNavCtaClick} 
-              className={`px-5 py-2.5 rounded-full text-xs shadow-lg transition-transform hover:scale-105 ${navTextTransformClass} ${navLetterSpacingClass}`}
-              style={getNavCtaStyle()}
-            >
-              {site.customNavLabels?.cta || 'Agendar'}
-            </button>
           </nav>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
             <Menu className="w-6 h-6" />
@@ -1034,13 +1012,8 @@ export function PublicWebsiteView({
               </button>
             ))}
           </nav>
-          <button 
-            onClick={handleNavCtaClick}
-            className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all cursor-pointer ${navTextTransformClass} ${navLetterSpacingClass}`}
-            style={getNavCtaStyle()}
-          >
-            <Send className="w-3.5 h-3.5" />
-            {site.customNavLabels?.cta || 'WhatsApp / Contato'}
+          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="md:hidden text-white p-1">
+            <Menu className="w-6 h-6" />
           </button>
         </header>
       )}
@@ -1053,9 +1026,6 @@ export function PublicWebsiteView({
               {label}
             </button>
           ))}
-          <button onClick={handleNavCtaClick} style={{ color: accentColor }}>
-            {site.customNavLabels?.cta || 'Solicitar Orçamento'}
-          </button>
         </div>
       )}
 
@@ -1108,7 +1078,10 @@ export function PublicWebsiteView({
               }
               onSelectQuoteTab={
                 isEditorPreview && onSelectSection
-                  ? () => onSelectSection('orcamento')
+                  ? () => {
+                      const qSec = allScrollySections.find((s) => s.type === 'custom_quote_section');
+                      onSelectSection(qSec?.id || 'sec_custom_quote_section_default');
+                    }
                   : undefined
               }
             />
@@ -1687,31 +1660,58 @@ export function PublicWebsiteView({
               </SectionWrapper>
             )}
 
-            {/* GORILAFORMS & CUSTOM QUOTE BUILDER SECTION */}
-            {isVisible('leads') && (activeNav === 'home' || activeNav === 'contato') && (
-              <SectionWrapper sectionId="leads" title="Orçamento & Disponibilidade" isEditorPreview={isEditorPreview} activeSection={activeSection} onSelectSection={onSelectSection}>
-                <section className="max-w-6xl mx-auto px-6 py-20 border-t border-white/5">
-                  <InteractiveQuoteFormBox
-                    site={site}
-                    isEditorPreview={isEditorPreview}
-                    onUpdateConfig={
-                      isEditorPreview && onUpdateSite
-                        ? (nextCfg) => {
-                            setSite((prev) => (prev ? { ...prev, quoteFormConfig: nextCfg } : prev));
-                            onUpdateSite({ quoteFormConfig: nextCfg });
-                          }
-                        : undefined
-                    }
-                    onSelectQuoteTab={
-                      isEditorPreview && onSelectSection
-                        ? () => onSelectSection('orcamento')
-                        : undefined
-                    }
-                    defaultWhatsappNumber={site.socialLinks?.whatsapp || ''}
-                  />
-                </section>
-              </SectionWrapper>
-            )}
+            {/* FORMULÁRIO PRO & CUSTOM QUOTE BUILDER SECTION */}
+            {isVisible('leads') && (activeNav === 'home' || activeNav === 'contato') && (() => {
+              const qCfg = (site.quoteFormConfig || {}) as any;
+              const qSec = allScrollySections.find((s) => s.type === 'custom_quote_section');
+              const bgImg =
+                qCfg.sectionBgImage !== undefined
+                  ? qCfg.sectionBgImage
+                  : qSec?.primaryImage || 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1800&q=85';
+              const overlayPct =
+                qCfg.sectionBgOverlayOpacity !== undefined
+                  ? Number(qCfg.sectionBgOverlayOpacity)
+                  : qSec?.overlayOpacity !== undefined
+                    ? Number(qSec.overlayOpacity)
+                    : 62;
+              const overlayAlpha = Math.max(0, Math.min(100, overlayPct)) / 100;
+
+              return (
+                <SectionWrapper sectionId="leads" title="Orçamento & Disponibilidade" isEditorPreview={isEditorPreview} activeSection={activeSection} onSelectSection={onSelectSection}>
+                  <section className="relative w-full py-20 border-t border-white/5 overflow-hidden">
+                    {bgImg && bgImg !== 'none' && (
+                      <div className="absolute inset-0 w-full h-full pointer-events-none">
+                        <img src={bgImg} alt="Orçamento" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black transition-opacity duration-200" style={{ opacity: overlayAlpha }} />
+                      </div>
+                    )}
+                    <div className="relative z-10 max-w-6xl mx-auto px-6">
+                      <InteractiveQuoteFormBox
+                        site={site}
+                        isEditorPreview={isEditorPreview}
+                        onUpdateConfig={
+                          isEditorPreview && onUpdateSite
+                            ? (nextCfg) => {
+                                setSite((prev) => (prev ? { ...prev, quoteFormConfig: nextCfg } : prev));
+                                onUpdateSite({ quoteFormConfig: nextCfg });
+                              }
+                            : undefined
+                        }
+                        onSelectQuoteTab={
+                          isEditorPreview && onSelectSection
+                            ? () => {
+                                const quoteBlock = allScrollySections.find((s) => s.type === 'custom_quote_section');
+                                onSelectSection(quoteBlock?.id || 'sec_custom_quote_section_default');
+                              }
+                            : undefined
+                        }
+                        defaultWhatsappNumber={site.socialLinks?.whatsapp || ''}
+                      />
+                    </div>
+                  </section>
+                </SectionWrapper>
+              );
+            })()}
           </>
         )}
       </main>

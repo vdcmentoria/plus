@@ -2204,82 +2204,99 @@ return exportServiceProvider`;
 
   const DEFAULT_CRM_PIPELINES = [
     {
-      id: 'pipe_casamentos',
-      name: 'Funil Principal · Casamentos & Eventos',
+      id: 'default_crm_pipeline',
+      name: 'Funil Principal (FramePRO CRM)',
       columns: [
-        { id: 'col_novo_lead', name: 'Novo Lead (Orçamento Site)', order: 0 },
-        { id: 'col_primeiro_contato', name: 'Primeiro Contato / WhatsApp', order: 1 },
-        { id: 'col_reuniao', name: 'Reunião / Apresentação', order: 2 },
-        { id: 'col_proposta', name: 'Proposta Enviada', order: 3 },
-        { id: 'col_negociacao', name: 'Em Negociação', order: 4 },
-        { id: 'col_fechado', name: 'Contrato Fechado', order: 5 }
-      ]
-    },
-    {
-      id: 'pipe_ensaios',
-      name: 'Funil Ensaios & Retratos',
-      columns: [
-        { id: 'col_ensaio_lead', name: 'Interesse Recebido (Site)', order: 0 },
-        { id: 'col_ensaio_orcamento', name: 'Orçamento Enviado', order: 1 },
-        { id: 'col_ensaio_agendado', name: 'Data Agendada', order: 2 },
-        { id: 'col_ensaio_realizado', name: 'Ensaio Realizado', order: 3 }
-      ]
-    },
-    {
-      id: 'pipe_comercial',
-      name: 'Funil Comercial / Corporativo',
-      columns: [
-        { id: 'col_corp_entrada', name: 'Solicitação de Proposta', order: 0 },
-        { id: 'col_corp_analise', name: 'Levantamento de Briefing', order: 1 },
-        { id: 'col_corp_aprovado', name: 'Aprovado', order: 2 }
+        { id: 'novo_lead', name: 'Novos Leads', order: 0 },
+        { id: 'em_atendimento', name: 'Em Atendimento', order: 1 },
+        { id: 'proposta_enviada', name: 'Proposta Enviada', order: 2 },
+        { id: 'fechado', name: 'Contrato Fechado', order: 3 }
       ]
     }
   ];
 
-  // Fetch pipelines & columns from FramePro CRM (with automatic remote discovery + local persistence)
+  // Fetch pipelines & columns natively from the user's account in FramePro CRM
   app.get('/api/crm/pipelines', async (req, res) => {
     try {
-      const userId = (req.query.userId as string) || 'default';
+      const userId = ((req.query.userId as string) || 'default').trim();
+      const queryEmail = ((req.query.email as string) || '').trim().toLowerCase();
       const crmOrigin = ((req.query.crmOrigin as string) || CRM_DEFAULT_ORIGIN).replace(/\/+$/, '');
       const authHeader = req.headers.authorization || '';
+
       const users = readUsers();
-      const userObj = users[userId] || Object.values(users).find((u: any) => u.crmId === userId || u.uid === userId) || {};
-      const crmUserId = userObj.crmId || userId;
+      const userObj: any =
+        users[userId] ||
+        Object.values(users).find(
+          (u: any) =>
+            u.crmId === userId ||
+            u.uid === userId ||
+            (queryEmail && String(u.email || '').toLowerCase() === queryEmail) ||
+            (userId.includes('@') && String(u.email || '').toLowerCase() === userId.toLowerCase())
+        ) ||
+        {};
+
+      const crmUserId = String(userObj.crmId || (!userId.includes('@') ? userId : '') || '').trim();
+      const userEmail = String(queryEmail || userObj.email || (userId.includes('@') ? userId : '') || '').trim().toLowerCase();
+      const sharedSecret = process.env.CRM_SSO_SECRET || 'framepro-ecosystem-bridge-2026';
 
       let remotePipelines: any[] | null = null;
 
-      // Try fetching live pipelines from FramePro CRM
+      // Try fetching live pipelines from FramePro CRM using both email and crmUserId
+      const queryStr = `email=${encodeURIComponent(userEmail)}&userId=${encodeURIComponent(crmUserId || userEmail)}`;
       const candidateUrls = [
-        `${crmOrigin}/api/crm/pipelines?userId=${encodeURIComponent(crmUserId)}`,
-        `${crmOrigin}/api/pipelines?userId=${encodeURIComponent(crmUserId)}`,
-        `${crmOrigin}/rest/v1/pipelines?user_id=eq.${encodeURIComponent(crmUserId)}&select=*,columns(*),stages(*)`
+        `${crmOrigin}/api/integrations/frameplus/pipelines?${queryStr}`,
+        `${crmOrigin}/api/crm/pipelines?${queryStr}`,
+        `${crmOrigin}/api/pipelines?${queryStr}`,
+        ...(crmUserId
+          ? [`${crmOrigin}/rest/v1/pipelines?user_id=eq.${encodeURIComponent(crmUserId)}&select=*,columns(*),stages(*)`]
+          : [])
       ];
 
       for (const url of candidateUrls) {
         try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 4500);
           const resp = await fetch(url, {
             method: 'GET',
             headers: {
               'Accept': 'application/json',
-              ...(authHeader ? { 'Authorization': authHeader } : {}),
-              ...(process.env.CRM_SSO_SECRET ? { 'X-CRM-Shared-Secret': process.env.CRM_SSO_SECRET } : {})
-            }
+              'x-framepro-integration': 'frameplus-site-builder',
+              'x-user-email': userEmail,
+              'x-user-id': crmUserId || userId,
+              'X-CRM-Shared-Secret': sharedSecret,
+              'apikey': CRM_SUPABASE_ANON_KEY,
+              ...(authHeader ? { 'Authorization': authHeader } : {})
+            },
+            signal: controller.signal
           });
+          clearTimeout(timer);
           if (resp.ok) {
             const data: any = await resp.json().catch(() => null);
-            const rawList = Array.isArray(data) ? data : (Array.isArray(data?.pipelines) ? data.pipelines : null);
+            const rawList = Array.isArray(data)
+              ? data
+              : Array.isArray(data?.pipelines)
+                ? data.pipelines
+                : Array.isArray(data?.funnels)
+                  ? data.funnels
+                  : Array.isArray(data?.data)
+                    ? data.data
+                    : null;
             if (rawList && rawList.length > 0) {
-              remotePipelines = rawList.map((p: any, idx: number) => ({
-                id: String(p.id || p.pipeline_id || `pipe_${idx}`),
-                name: p.name || p.title || `Pipeline ${idx + 1}`,
-                columns: Array.isArray(p.columns || p.stages || p.kanban_columns)
-                  ? (p.columns || p.stages || p.kanban_columns).map((c: any, cIdx: number) => ({
-                      id: String(c.id || c.column_id || c.stage_id || `col_${cIdx}`),
-                      name: c.name || c.title || `Etapa ${cIdx + 1}`,
-                      order: c.order ?? c.position ?? cIdx
-                    }))
-                  : DEFAULT_CRM_PIPELINES[0].columns
-              }));
+              remotePipelines = rawList.map((p: any, idx: number) => {
+                const rawCols = p.columns || p.stages || p.kanban_columns || p.steps || [];
+                return {
+                  id: String(p.id ?? p.pipeline_id ?? `pipe_${idx}`),
+                  name: p.name || p.title || `Funil ${idx + 1}`,
+                  columns:
+                    Array.isArray(rawCols) && rawCols.length > 0
+                      ? rawCols.map((c: any, cIdx: number) => ({
+                          id: String(c.id ?? c.column_id ?? c.stage_id ?? `col_${cIdx}`),
+                          name: c.name || c.title || `Coluna ${cIdx + 1}`,
+                          order: c.order ?? c.position ?? cIdx
+                        }))
+                      : [{ id: 'novo_lead', name: 'Novos Leads', order: 0 }]
+                };
+              });
               break;
             }
           }
@@ -2287,24 +2304,44 @@ return exportServiceProvider`;
       }
 
       const allSaved = readCrmPipelines();
+      const cacheKey = userEmail || crmUserId || userId;
       if (remotePipelines && remotePipelines.length > 0) {
-        allSaved[crmUserId] = remotePipelines;
+        if (userEmail) allSaved[userEmail] = remotePipelines;
+        if (crmUserId) allSaved[crmUserId] = remotePipelines;
+        allSaved[userId] = remotePipelines;
         writeCrmPipelines(allSaved);
         return res.json({
           connected: true,
+          liveSynced: true,
           source: 'framepro_crm_live',
           crmUserId,
+          userEmail,
           pipelines: remotePipelines
         });
       }
 
-      const savedForUser = allSaved[crmUserId] || allSaved[userId];
-      const finalPipelines = savedForUser && savedForUser.length > 0 ? savedForUser : DEFAULT_CRM_PIPELINES;
+      // Check if FramePro CRM pushed pipelines for this user's email or crmUserId
+      const savedForUser =
+        (userEmail && allSaved[userEmail]) ||
+        (crmUserId && allSaved[crmUserId]) ||
+        allSaved[userId];
+
+      // Ignore legacy 3-mock array if it was saved in cache earlier
+      const isLegacyMock =
+        Array.isArray(savedForUser) &&
+        savedForUser.length === 3 &&
+        savedForUser[0]?.id === 'pipe_casamentos' &&
+        savedForUser[1]?.id === 'pipe_ensaios';
+
+      const validSaved = savedForUser && !isLegacyMock && savedForUser.length > 0 ? savedForUser : null;
+      const finalPipelines = validSaved || DEFAULT_CRM_PIPELINES;
 
       return res.json({
         connected: true,
-        source: savedForUser ? 'framepro_crm_synced' : 'framepro_crm_default',
+        liveSynced: Boolean(validSaved),
+        source: validSaved ? 'framepro_crm_synced' : 'framepro_crm_default',
         crmUserId,
+        userEmail,
         pipelines: finalPipelines
       });
     } catch (err: any) {
@@ -2312,17 +2349,66 @@ return exportServiceProvider`;
     }
   });
 
-  // Save/update custom pipelines & columns for the photographer and sync with FramePro CRM
-  app.post('/api/crm/pipelines', async (req, res) => {
+  // Save/update pipelines & columns for the photographer (also called by FramePro CRM webhook push)
+  const handleSyncPipelinesRequest = (req: any, res: any) => {
     try {
-      const { userId = 'default', pipelines } = req.body || {};
+      const { userId = 'default', email = '', pipelines } = req.body || {};
       if (!Array.isArray(pipelines)) {
         return res.status(400).json({ error: 'Formato de pipelines inválido.' });
       }
+      const cleanEmail = String(email || (String(userId).includes('@') ? userId : '')).trim().toLowerCase();
       const allSaved = readCrmPipelines();
-      allSaved[userId] = pipelines;
+      if (userId) allSaved[String(userId)] = pipelines;
+      if (cleanEmail) allSaved[cleanEmail] = pipelines;
       writeCrmPipelines(allSaved);
       return res.json({ success: true, pipelines });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  };
+
+  app.post('/api/crm/pipelines', handleSyncPipelinesRequest);
+  app.post('/api/integrations/framepro/sync-pipelines', handleSyncPipelinesRequest);
+
+  // Pull endpoint so FramePRO CRM can also fetch any leads for a user by email or userId
+  app.get('/api/integrations/framepro/leads', (req, res) => {
+    try {
+      const email = String(req.query.email || req.headers['x-user-email'] || '').trim().toLowerCase();
+      const userId = String(req.query.userId || req.headers['x-user-id'] || '').trim();
+      const onlyUnsynced = req.query.unsynced === 'true';
+
+      const sites = readSites();
+      const users = readUsers();
+      const matchingSiteIds = new Set<string>();
+
+      for (const s of sites) {
+        const ownerId = String(s.ownerId || '');
+        const ownerUser: any =
+          users[ownerId] ||
+          Object.values(users).find((u: any) => u.uid === ownerId || u.crmId === ownerId) ||
+          {};
+        const siteEmail = String(ownerUser.email || s.ownerEmail || s.contactEmail || '').toLowerCase();
+        const siteCrmId = String(ownerUser.crmId || ownerId);
+
+        if (
+          (email && siteEmail === email) ||
+          (userId && (siteCrmId === userId || ownerId === userId))
+        ) {
+          matchingSiteIds.add(String(s.id));
+        }
+      }
+
+      const allLeads = readLeads();
+      const userLeads = allLeads.filter((l: any) => {
+        const matchBySite = matchingSiteIds.has(String(l.siteId));
+        const matchByEmail = email && String(l.ownerEmail || '').toLowerCase() === email;
+        const matchByUser = userId && String(l.ownerCrmId || l.ownerId || '') === userId;
+        if (!matchBySite && !matchByEmail && !matchByUser) return false;
+        if (onlyUnsynced && l.crmDeliveredLive) return false;
+        return true;
+      });
+
+      return res.json({ success: true, count: userLeads.length, leads: userLeads });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -2338,21 +2424,29 @@ return exportServiceProvider`;
 
     const users = readUsers();
     const ownerId = siteObj?.ownerId || lead.ownerId || 'default';
-    const ownerUser = users[ownerId] || Object.values(users).find((u: any) => u.uid === ownerId || u.crmId === ownerId) || {};
-    const crmUserId = quoteCfg.crmUserId || ownerUser.crmId || ownerUser.uid || ownerId;
+    const ownerUser: any =
+      users[ownerId] ||
+      Object.values(users).find((u: any) => u.uid === ownerId || u.crmId === ownerId) ||
+      {};
+    const crmUserId = String(quoteCfg.crmUserId || ownerUser.crmId || ownerUser.uid || ownerId);
+    const ownerEmail = String(ownerUser.email || siteObj?.ownerEmail || siteObj?.contactEmail || (ownerId.includes('@') ? ownerId : '')).trim().toLowerCase();
     const crmOrigin = (quoteCfg.crmOrigin || CRM_DEFAULT_ORIGIN).replace(/\/+$/, '');
+    const sharedSecret = process.env.CRM_SSO_SECRET || 'framepro-ecosystem-bridge-2026';
 
-    const pipelineId = lead.crmPipelineId || quoteCfg.crmPipelineId || 'pipe_casamentos';
-    const pipelineName = lead.crmPipelineName || quoteCfg.crmPipelineName || 'Funil Principal · Casamentos & Eventos';
-    const columnId = lead.crmColumnId || quoteCfg.crmColumnId || 'col_novo_lead';
-    const columnName = lead.crmColumnName || quoteCfg.crmColumnName || 'Novo Lead (Orçamento Site)';
+    const pipelineId = lead.crmPipelineId || quoteCfg.crmPipelineId || 'default_crm_pipeline';
+    const pipelineName = lead.crmPipelineName || quoteCfg.crmPipelineName || 'Funil Principal (FramePRO CRM)';
+    const columnId = lead.crmColumnId || quoteCfg.crmColumnId || 'novo_lead';
+    const columnName = lead.crmColumnName || quoteCfg.crmColumnName || 'Novos Leads';
 
     const crmPayload = {
       user_id: crmUserId,
       owner_id: crmUserId,
+      user_email: ownerEmail,
+      account_email: ownerEmail,
       pipeline_id: pipelineId,
       pipeline_name: pipelineName,
       column_id: columnId,
+      column_name: columnName,
       stage_id: columnId,
       stage: columnName,
       status: columnName,
@@ -2378,6 +2472,7 @@ return exportServiceProvider`;
     };
 
     const candidateEndpoints = [
+      `${crmOrigin}/api/integrations/frameplus/leads`,
       `${crmOrigin}/api/crm/leads`,
       `${crmOrigin}/api/leads`,
       `${crmOrigin}/api/webhooks/leads`,
@@ -2386,20 +2481,29 @@ return exportServiceProvider`;
 
     for (const endpoint of candidateEndpoints) {
       try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
         const resp = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            ...(quoteCfg.crmApiToken ? { 'Authorization': `Bearer ${quoteCfg.crmApiToken}` } : {}),
-            ...(process.env.CRM_SSO_SECRET ? { 'X-CRM-Shared-Secret': process.env.CRM_SSO_SECRET } : {})
+            'x-framepro-integration': 'frameplus-site-builder',
+            'x-user-email': ownerEmail,
+            'x-user-id': crmUserId,
+            'X-CRM-Shared-Secret': sharedSecret,
+            'apikey': CRM_SUPABASE_ANON_KEY,
+            ...(quoteCfg.crmApiToken ? { 'Authorization': `Bearer ${quoteCfg.crmApiToken}` } : {})
           },
-          body: JSON.stringify(crmPayload)
+          body: JSON.stringify(crmPayload),
+          signal: controller.signal
         });
+        clearTimeout(timer);
         if (resp.ok) {
           const respData: any = await resp.json().catch(() => ({}));
           return {
             synced: true,
+            liveDelivered: true,
             crmLeadId: respData.id || respData.lead?.id || `crm_${Date.now()}`,
             pipelineId,
             pipelineName,
@@ -2411,9 +2515,10 @@ return exportServiceProvider`;
       } catch {}
     }
 
-    // Even if remote CRM endpoint requires webhook queue, record the assigned pipeline & column so it's queued/tracked
+    // Even if remote CRM endpoint is queued for pull, record the assigned pipeline & column so it's tracked
     return {
       synced: true,
+      liveDelivered: false,
       crmLeadId: `fp_lead_${Date.now()}`,
       pipelineId,
       pipelineName,

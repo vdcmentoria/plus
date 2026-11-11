@@ -112,6 +112,7 @@ export type ScrollySectionType =
   | 'cta_zoom_whatsapp'
   | 'client_testimonials'
   | 'instagram_feed_banner'
+  | 'custom_quote_section'
   | 'custom_footer_section';
 
 export type ScrollyGalleryStyle =
@@ -171,6 +172,13 @@ export interface ScrollySectionBlock {
     | 'curtain_parallax_bg'
     | 'columns_3_luxury'
     | 'minimal_bar';
+  quoteEffect?:
+    | 'zoom_out_cinema'
+    | 'curtain_split_reveal'
+    | 'marquee_kinetic_bg'
+    | 'liquid_aurora_glow'
+    | 'editorial_frame_vignette'
+    | 'minimal_studio_clean';
   footerPaddingSize?: 'compact' | 'normal' | 'large' | 'monumental';
   footerLayout?: 'editorial_split' | 'centered_stack' | 'minimal_row' | 'columns_3';
   footerTextAlign?: 'left' | 'center' | 'right';
@@ -243,6 +251,7 @@ export function getSectionNavLabel(sec: ScrollySectionBlock, idx: number): strin
   if (sec.navLabel && sec.navLabel.trim().length > 0) {
     return sec.navLabel.trim();
   }
+  if (sec.type === 'custom_quote_section') return 'ORÇAMENTO';
   if (sec.type === 'custom_footer_section') return 'RODAPÉ';
   if (idx === 0) return 'INÍCIO';
   if (idx === 1) return 'PORTFÓLIO';
@@ -278,6 +287,7 @@ export interface ScrollytellingConfig {
   sectionsThemeId?: ScrollytellingThemeId;
   sections?: ScrollySectionBlock[];
   footerDeleted?: boolean;
+  quoteDeleted?: boolean;
   // Legacy / global fallback slots
   heroKicker?: string;
   heroTitle?: string;
@@ -586,6 +596,12 @@ export const SCROLLY_SECTION_LIBRARY: Array<{
     desc: 'Grid de fotos/reels do Instagram com selo do perfil, @handle e botão "Siga no Instagram"'
   },
   {
+    type: 'custom_quote_section',
+    label: 'Orçamento & Caixa Pro (CRM)',
+    originTheme: 'Universal',
+    desc: 'Aba de Orçamento com Caixa Personalizável, Drag & Drop, Liquid Glass e conexão direta ao CRM'
+  },
+  {
     type: 'custom_footer_section',
     label: 'Rodapé Autoral Customizado & Selos',
     originTheme: 'Universal',
@@ -716,11 +732,56 @@ export const FOOTER_EFFECT_CATALOG: Array<{
   }
 ];
 
+export const QUOTE_EFFECT_CATALOG: Array<{
+  id: NonNullable<ScrollySectionBlock['quoteEffect']>;
+  label: string;
+  badge: string;
+  desc: string;
+}> = [
+  {
+    id: 'zoom_out_cinema',
+    label: 'Zoom-Out Cinematográfico de Fundo',
+    badge: 'Lumina Editorial',
+    desc: 'Foto/vídeo de fundo em zoom-out suave guiado pelo scroll mantendo a Caixa de Orçamento em destaque'
+  },
+  {
+    id: 'curtain_split_reveal',
+    label: 'Cortina Bipartida Revelando o Orçamento',
+    badge: 'Koreo Kinetic',
+    desc: 'Duas portas laterais se abrem no scroll revelando a fotografia de fundo e a Caixa de Orçamento central'
+  },
+  {
+    id: 'marquee_kinetic_bg',
+    label: 'Marquee Cinético Infinito no Fundo',
+    badge: 'Vogue Editorial',
+    desc: 'Faixa tipográfica gigante em movimento contínuo ao fundo destacando a Caixa de Orçamento'
+  },
+  {
+    id: 'liquid_aurora_glow',
+    label: 'Luz Atmosférica & Halo Liquid Glass',
+    badge: 'Atelier Champagne',
+    desc: 'Luzes difusas quentes flutuando suavemente atrás da Caixa de Orçamento (ideal para Liquid Glass)'
+  },
+  {
+    id: 'editorial_frame_vignette',
+    label: 'Moldura Editorial com Fotos Laterais',
+    badge: 'Noir Cinema',
+    desc: 'Fotografias autorais flutuantes nas laterais em parallax emoldurando a Caixa de Orçamento'
+  },
+  {
+    id: 'minimal_studio_clean',
+    label: 'Estúdio Sólido Minimalista',
+    badge: 'Atelier Minimal',
+    desc: 'Fundo limpo de estúdio focado 100% na tipografia e na Caixa de Pedido de Orçamento'
+  }
+];
+
 export const DEFAULT_SCROLLYTELLING_CONFIG: Required<ScrollytellingConfig> = {
   smoothScroll: true,
   sectionsThemeId: 'lumina-editorial',
   sections: [],
   footerDeleted: false,
+  quoteDeleted: false,
   heroKicker: 'FINE ART & STORYTELLING VISUAL',
   heroTitle: 'FOTOGRAFIA & REGISTROS ATEMPORAIS',
   heroSubtitle: 'Transformando momentos reais e emoções autênticas em memórias eternas.',
@@ -1342,6 +1403,28 @@ export function createSectionFromTemplate(
         ]
       };
 
+    case 'custom_quote_section':
+      return {
+        id: 'sec_custom_quote_section_default',
+        type: 'custom_quote_section',
+        sourceThemeName: 'Orçamento Pro',
+        visible: true,
+        navLabel: 'ORÇAMENTO',
+        hideFromNav: false,
+        quoteEffect: 'zoom_out_cinema',
+        kicker: 'ORÇAMENTO & DISPONIBILIDADE',
+        title: 'Vamos contar a sua história?',
+        subtitle: 'Preencha os dados abaixo para verificar disponibilidade de data e receber sua proposta personalizada.',
+        headingFont: hFont,
+        bodyFont: bFont,
+        bgColor: themeOverride?.bgColor || '#0A0A0A',
+        textColor: '#FFFFFF',
+        accentColor: brandAccent,
+        overlayOpacity: 62,
+        primaryImage: DEFAULT_SCROLLYTELLING_CONFIG.ctaBackgroundImage,
+        secondaryImage: DEFAULT_SCROLLYTELLING_CONFIG.manifestoLeftImage
+      };
+
     case 'cta_zoom_whatsapp':
     default:
       return {
@@ -1531,6 +1614,7 @@ export function getThemePresetSections(
 
   return [
     ...baseSections,
+    createSectionFromTemplate('custom_quote_section', site, ov),
     createSectionFromTemplate('custom_footer_section', site, {
       ...ov,
       bgColor: '#050505',
@@ -1555,11 +1639,20 @@ export function resolveScrollyConfig(site: any): Required<ScrollytellingConfig> 
     ? [...custom.sections!]
     : getThemePresetSections(safeThemeId, site);
 
-  // Repair & deduplicate any footer sections so selecting an effect inside Rodapé never creates a duplicate RODAPÉ tab
+  // Repair & deduplicate any quote and footer sections so selecting an effect inside Orçamento or Rodapé never creates duplicates
+  let seenQuote = false;
   let seenFooter = false;
   resolvedSections = resolvedSections
     .map((sec) => {
       const labelUpper = (sec.navLabel || '').trim().toUpperCase();
+      if (sec.type === 'custom_quote_section' || labelUpper === 'ORÇAMENTO' || labelUpper === 'ORCAMENTO') {
+        return {
+          ...sec,
+          type: 'custom_quote_section' as const,
+          navLabel: sec.navLabel || 'ORÇAMENTO',
+          quoteEffect: sec.quoteEffect || 'zoom_out_cinema'
+        };
+      }
       if (sec.type === 'custom_footer_section' || labelUpper === 'RODAPÉ' || labelUpper === 'RODAPE') {
         return {
           ...sec,
@@ -1570,12 +1663,34 @@ export function resolveScrollyConfig(site: any): Required<ScrollytellingConfig> 
       return sec;
     })
     .filter((sec) => {
+      if (sec.type === 'custom_quote_section') {
+        if (seenQuote) return false;
+        seenQuote = true;
+      }
       if (sec.type === 'custom_footer_section') {
         if (seenFooter) return false;
         seenFooter = true;
       }
       return true;
     });
+
+  // Ensure ORÇAMENTO tab is always present (right before RODAPÉ) unless explicitly deleted by the user
+  if (
+    !custom.quoteDeleted &&
+    !resolvedSections.some((s) => s.type === 'custom_quote_section')
+  ) {
+    const quoteBlock = createSectionFromTemplate('custom_quote_section', site);
+    const footerIndex = resolvedSections.findIndex((s) => s.type === 'custom_footer_section');
+    if (footerIndex !== -1) {
+      resolvedSections = [
+        ...resolvedSections.slice(0, footerIndex),
+        quoteBlock,
+        ...resolvedSections.slice(footerIndex)
+      ];
+    } else {
+      resolvedSections = [...resolvedSections, quoteBlock];
+    }
+  }
 
   // Ensure RODAPÉ tab is always present at the end unless explicitly deleted by the user
   if (
@@ -1592,6 +1707,7 @@ export function resolveScrollyConfig(site: any): Required<ScrollytellingConfig> 
     ...DEFAULT_SCROLLYTELLING_CONFIG,
     ...custom,
     footerDeleted: Boolean(custom.footerDeleted),
+    quoteDeleted: Boolean(custom.quoteDeleted),
     sectionsThemeId: custom.sectionsThemeId || safeThemeId,
     sections: resolvedSections,
     heroKicker: custom.heroKicker || site?.niche || DEFAULT_SCROLLYTELLING_CONFIG.heroKicker,
@@ -3847,17 +3963,11 @@ function BlockInteractiveGalleryShowcase({
 function BlockCtaZoomWhatsapp({
   block,
   site,
-  whatsappNumber,
-  isEditorPreview,
-  onUpdateQuoteConfig,
-  onSelectQuoteTab
+  whatsappNumber
 }: {
   block: ScrollySectionBlock;
   site: any;
   whatsappNumber: string;
-  isEditorPreview?: boolean;
-  onUpdateQuoteConfig?: (nextCfg: QuoteFormConfig) => void;
-  onSelectQuoteTab?: () => void;
 }) {
   const ref = useRef<HTMLElement | null>(null);
   const progress = useUniversalScrollProgress(ref, 'enter-exit');
@@ -3880,7 +3990,7 @@ function BlockCtaZoomWhatsapp({
     <section
       ref={ref}
       style={{ fontFamily: bFont }}
-      className="relative min-h-[95vh] py-20 w-full overflow-hidden flex items-center justify-center"
+      className="relative min-h-[85vh] py-20 w-full overflow-hidden flex items-center justify-center"
     >
       <motion.div style={{ scale }} className="absolute inset-0 w-full h-full">
         <MediaSlot
@@ -3891,61 +4001,265 @@ function BlockCtaZoomWhatsapp({
         <div className="absolute inset-0 bg-black" style={{ opacity: overlayDarkness }} />
       </motion.div>
 
-      <div className="relative z-10 w-full max-w-6xl mx-auto px-4 md:px-6 text-center text-white space-y-8">
+      <div className="relative z-10 w-full max-w-4xl mx-auto px-4 md:px-6 text-center text-white space-y-6">
+        {(block.kicker || block.title || block.subtitle) && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            {block.kicker !== '' && (
+              <span className="text-xs uppercase tracking-[0.3em] text-white/80 block">
+                {block.kicker || site?.photographerName}
+              </span>
+            )}
+            {block.title && (
+              <h2 style={{ fontFamily: hFont }} className={`${titleSizeCls} font-normal leading-tight break-words px-2`}>
+                {block.title}
+              </h2>
+            )}
+            {block.subtitle && (
+              <p className="text-sm sm:text-base text-white/80 max-w-lg mx-auto">{block.subtitle}</p>
+            )}
+          </div>
+        )}
+
+        {block.showButton !== false && (
+          <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={openWhatsApp}
+              style={{ backgroundColor: accent }}
+              className="px-8 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest inline-flex items-center gap-2.5 shadow-2xl hover:scale-105 transition-transform cursor-pointer"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span>{block.buttonText || 'Verificar Disponibilidade no WhatsApp'}</span>
+            </button>
+            {block.secondaryButtonText && (
+              <button
+                type="button"
+                onClick={() => triggerBlockDestination(block.secondaryButtonUrl || '#portfolio', site, whatsappNumber)}
+                className="px-6 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest border border-white/35 bg-black/35 backdrop-blur-md hover:bg-white/15 transition-colors cursor-pointer"
+              >
+                {block.secondaryButtonText}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ============================================================================
+// ABA ORÇAMENTO DEDICADA (SEMPRE MANTÉM A CAIXA DE PEDIDO DE ORÇAMENTO + EFEITO COMPLEMENTAR INTERNO)
+// ============================================================================
+function BlockCustomQuoteSection({
+  block,
+  site,
+  whatsappNumber,
+  isEditorPreview,
+  onUpdateQuoteConfig,
+  onSelectQuoteTab
+}: {
+  block: ScrollySectionBlock;
+  site: any;
+  whatsappNumber: string;
+  isEditorPreview?: boolean;
+  onUpdateQuoteConfig?: (nextCfg: QuoteFormConfig) => void;
+  onSelectQuoteTab?: () => void;
+}) {
+  const ref = useRef<HTMLElement | null>(null);
+  const progress = useUniversalScrollProgress(ref, 'enter-exit');
+
+  const quoteCfg = site?.quoteFormConfig || {};
+  const activeEffect = block.quoteEffect || 'zoom_out_cinema';
+  const bg = block.bgColor || '#0A0A0A';
+  const txt = block.textColor || '#FFFFFF';
+  const accent = block.accentColor || site?.primaryColor || '#D05634';
+  const hFont = block.headingFont || site?.headingFont || 'Playfair Display';
+  const bFont = block.bodyFont || site?.bodyFont || 'Plus Jakarta Sans';
+  const resolvedBgImage =
+    quoteCfg.sectionBgImage !== undefined
+      ? quoteCfg.sectionBgImage
+      : block.primaryImage || DEFAULT_SCROLLYTELLING_CONFIG.ctaBackgroundImage;
+  const resolvedOverlayPct =
+    quoteCfg.sectionBgOverlayOpacity !== undefined
+      ? Number(quoteCfg.sectionBgOverlayOpacity)
+      : block.overlayOpacity !== undefined
+        ? Number(block.overlayOpacity)
+        : 62;
+  const overlayDarkness = Math.max(0, Math.min(100, resolvedOverlayPct)) / 100;
+  const titleSizeCls = getSectionTitleSizeClass(block, site, '2xl');
+
+  const zoomScale = useTransform(progress, [0, 1], [1.28, 1.0]);
+  const leftCurtainX = useTransform(progress, [0, 0.45], ['0%', '-100%']);
+  const rightCurtainX = useTransform(progress, [0, 0.45], ['0%', '100%']);
+  const leftPhotoY = useTransform(progress, [0, 1], [60, -60]);
+  const rightPhotoY = useTransform(progress, [0, 1], [-50, 50]);
+
+  const marqueePhrase =
+    block.marqueeTopText ||
+    `${block.title || 'VERIFICAR DISPONIBILIDADE'} · ${block.kicker || 'ORÇAMENTO'} · ${site?.photographerName || 'AGENDA ABERTA'}`;
+  const marqueeOpacity = (block.marqueeOpacity !== undefined ? block.marqueeOpacity : 18) / 100;
+
+  return (
+    <section
+      ref={ref}
+      style={{ backgroundColor: bg, color: txt, fontFamily: bFont }}
+      className="relative min-h-[95vh] py-20 md:py-28 w-full overflow-hidden flex items-center justify-center"
+    >
+      {/* EFEITO COMPLEMENTAR 1, 2, 3, 5: MÍDIA DE FUNDO COM ZOOM-OUT SUAVE */}
+      {activeEffect !== 'minimal_studio_clean' && resolvedBgImage !== 'none' && (
+        <motion.div
+          style={{ scale: activeEffect === 'zoom_out_cinema' ? zoomScale : 1.04 }}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        >
+          <MediaSlot
+            imageUrl={resolvedBgImage || DEFAULT_SCROLLYTELLING_CONFIG.ctaBackgroundImage}
+            videoUrl={block.primaryVideo}
+            alt={block.title || 'Orçamento'}
+          />
+          <div className="absolute inset-0 bg-black transition-opacity duration-200" style={{ opacity: overlayDarkness }} />
+        </motion.div>
+      )}
+
+      {/* EFEITO COMPLEMENTAR 2: CORTINA BIPARTIDA QUE ABRE REVELANDO A CAIXA DE ORÇAMENTO */}
+      {activeEffect === 'curtain_split_reveal' && (
+        <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden flex">
+          <motion.div
+            style={{
+              x: leftCurtainX,
+              backgroundColor: bg,
+              borderColor: block.doorBorderColor || `${accent}40`
+            }}
+            className="w-1/2 h-full border-r flex items-center justify-end pr-6 opacity-95"
+          >
+            <span
+              style={{ fontFamily: hFont, color: txt }}
+              className="text-xs uppercase tracking-[0.4em] opacity-40 hidden sm:block"
+            >
+              {block.kicker || 'ORÇAMENTO'}
+            </span>
+          </motion.div>
+          <motion.div
+            style={{
+              x: rightCurtainX,
+              backgroundColor: bg,
+              borderColor: block.doorBorderColor || `${accent}40`
+            }}
+            className="w-1/2 h-full border-l flex items-center justify-start pl-6 opacity-95"
+          >
+            <span
+              style={{ fontFamily: hFont, color: txt }}
+              className="text-xs uppercase tracking-[0.4em] opacity-40 hidden sm:block"
+            >
+              {site?.photographerName || 'PROPOSTA'}
+            </span>
+          </motion.div>
+        </div>
+      )}
+
+      {/* EFEITO COMPLEMENTAR 3: MARQUEE CINÉTICO INFINITO ATRÁS DA CAIXA DE ORÇAMENTO */}
+      {activeEffect === 'marquee_kinetic_bg' && (
+        <div
+          style={{ opacity: marqueeOpacity }}
+          className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-[5] overflow-hidden py-6 select-none pointer-events-none"
+        >
+          <motion.div
+            animate={{ x: ['0%', '-50%'] }}
+            transition={{
+              repeat: Infinity,
+              ease: 'linear',
+              duration: block.curtainSpeed === 'fast' ? 16 : block.curtainSpeed === 'slow' ? 36 : 24
+            }}
+            style={{ fontFamily: hFont, color: txt }}
+            className="flex whitespace-nowrap text-5xl sm:text-7xl md:text-8xl uppercase tracking-wider font-normal"
+          >
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <span key={idx} className="mx-8">
+                {marqueePhrase} ·
+              </span>
+            ))}
+          </motion.div>
+        </div>
+      )}
+
+      {/* EFEITO COMPLEMENTAR 4: LUZ ATMOSFÉRICA & HALO LIQUID GLASS */}
+      {activeEffect === 'liquid_aurora_glow' && (
+        <div className="absolute inset-0 z-[5] pointer-events-none overflow-hidden">
+          <div
+            style={{ background: `radial-gradient(circle, ${accent}55 0%, transparent 70%)` }}
+            className="absolute -top-24 left-1/4 w-[460px] h-[460px] rounded-full blur-3xl opacity-70 animate-pulse"
+          />
+          <div
+            style={{ background: 'radial-gradient(circle, rgba(226,202,184,0.35) 0%, transparent 70%)' }}
+            className="absolute -bottom-24 right-1/4 w-[520px] h-[520px] rounded-full blur-3xl opacity-60"
+          />
+        </div>
+      )}
+
+      {/* EFEITO COMPLEMENTAR 5: MOLDURA EDITORIAL COM FOTOS LATERAIS EM PARALLAX */}
+      {activeEffect === 'editorial_frame_vignette' && (
+        <div className="hidden xl:block absolute inset-0 z-[6] pointer-events-none max-w-7xl mx-auto">
+          <motion.div
+            style={{ y: leftPhotoY }}
+            className="absolute left-6 top-1/4 w-52 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl border border-white/15 opacity-80 -rotate-3"
+          >
+            <img
+              src={block.secondaryImage || DEFAULT_SCROLLYTELLING_CONFIG.manifestoLeftImage}
+              alt="Editorial Left"
+              className="w-full h-full object-cover"
+            />
+          </motion.div>
+          <motion.div
+            style={{ y: rightPhotoY }}
+            className="absolute right-6 bottom-1/4 w-52 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl border border-white/15 opacity-80 rotate-3"
+          >
+            <img
+              src={block.primaryImage || DEFAULT_SCROLLYTELLING_CONFIG.manifestoRightImage}
+              alt="Editorial Right"
+              className="w-full h-full object-cover"
+            />
+          </motion.div>
+        </div>
+      )}
+
+      {/* CONTEÚDO CENTRAL: TÍTULOS DA ABA + CAIXA DE PEDIDO DE ORÇAMENTO (SEMPRE PRESENTE) */}
+      <div className="relative z-10 w-full max-w-6xl mx-auto px-4 md:px-6 text-center space-y-8">
         {(block.kicker || block.title || block.subtitle) &&
           site?.quoteFormConfig?.layoutPreset !== 'concierge_split' && (
-            <div className="max-w-2xl mx-auto space-y-4">
+            <div className="max-w-2xl mx-auto space-y-3">
               {block.kicker !== '' && (
-                <span className="text-xs uppercase tracking-[0.3em] text-white/80 block">
-                  {block.kicker || site?.photographerName}
+                <span
+                  style={{ color: accent }}
+                  className="text-xs uppercase tracking-[0.3em] font-bold block"
+                >
+                  {block.kicker || 'ORÇAMENTO & DISPONIBILIDADE'}
                 </span>
               )}
               {block.title && (
-                <h2 style={{ fontFamily: hFont }} className={`${titleSizeCls} font-normal leading-tight break-words px-2`}>
+                <h2
+                  style={{ fontFamily: hFont, color: txt }}
+                  className={`${titleSizeCls} font-normal leading-tight break-words px-2`}
+                >
                   {block.title}
                 </h2>
               )}
               {block.subtitle && (
-                <p className="text-sm sm:text-base text-white/80 max-w-lg mx-auto">{block.subtitle}</p>
+                <p style={{ color: txt }} className="text-sm sm:text-base opacity-80 max-w-lg mx-auto">
+                  {block.subtitle}
+                </p>
               )}
             </div>
           )}
 
-        {/* Interactive Quote Form Box (Supports Foto 2 Atelier Champagne, Liquid Glass, Drag & Drop, CRM Sync) */}
-        {site?.quoteFormConfig?.enabled !== false ? (
-          <div className="pt-2">
-            <InteractiveQuoteFormBox
-              site={site}
-              isEditorPreview={isEditorPreview}
-              onUpdateConfig={onUpdateQuoteConfig}
-              onSelectQuoteTab={onSelectQuoteTab}
-              defaultWhatsappNumber={whatsappNumber}
-            />
-          </div>
-        ) : (
-          block.showButton !== false && (
-            <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={openWhatsApp}
-                style={{ backgroundColor: accent }}
-                className="px-8 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest inline-flex items-center gap-2.5 shadow-2xl hover:scale-105 transition-transform"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>{block.buttonText || 'Verificar Disponibilidade no WhatsApp'}</span>
-              </button>
-              {block.secondaryButtonText && (
-                <button
-                  type="button"
-                  onClick={() => triggerBlockDestination(block.secondaryButtonUrl || '#portfolio', site, whatsappNumber)}
-                  className="px-6 py-4 rounded-full text-white text-xs font-bold uppercase tracking-widest border border-white/35 bg-black/35 backdrop-blur-md hover:bg-white/15 transition-colors"
-                >
-                  {block.secondaryButtonText}
-                </button>
-              )}
-            </div>
-          )
-        )}
+        {/* A Caixa de Pedido de Orçamento NUNCA é removida desta aba */}
+        <div className="pt-2">
+          <InteractiveQuoteFormBox
+            site={site}
+            isEditorPreview={isEditorPreview}
+            onUpdateConfig={onUpdateQuoteConfig}
+            onSelectQuoteTab={onSelectQuoteTab}
+            defaultWhatsappNumber={whatsappNumber}
+          />
+        </div>
       </div>
     </section>
   );
@@ -4975,6 +5289,17 @@ export function ModularScrollytellingComposer({
               );
             case 'instagram_feed_banner':
               return <BlockInstagramFeedBanner block={block} site={site} />;
+            case 'custom_quote_section':
+              return (
+                <BlockCustomQuoteSection
+                  block={block}
+                  site={site}
+                  whatsappNumber={config.whatsappNumber}
+                  isEditorPreview={Boolean(onSelectSection)}
+                  onUpdateQuoteConfig={onUpdateQuoteConfig}
+                  onSelectQuoteTab={onSelectQuoteTab}
+                />
+              );
             case 'custom_footer_section':
               return <BlockCustomFooterSection block={block} site={site} />;
             case 'cta_zoom_whatsapp':
@@ -4984,9 +5309,6 @@ export function ModularScrollytellingComposer({
                   block={block}
                   site={site}
                   whatsappNumber={config.whatsappNumber}
-                  isEditorPreview={Boolean(onSelectSection)}
-                  onUpdateQuoteConfig={onUpdateQuoteConfig}
-                  onSelectQuoteTab={onSelectQuoteTab}
                 />
               );
           }
