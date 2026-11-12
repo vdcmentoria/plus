@@ -1,0 +1,17 @@
+{
+  "obFWpjBfW3gKs381QzUw5eWtjS73": {
+    "uid": "obFWpjBfW3gKs381QzUw5eWtjS73",
+    "email": "felipemachadophotography@gmail.com",
+    "displayName": "Felipe Machado",
+    "photoURL": "https://lh3.googleusercontent.com/a/ACg8ocLnhUzJCZiI_jWnNvMLu9T25fhbJRFEZ2kdZmIXCcMunJh4lA=s96-c",
+    "role": "admin",
+    "isAdmin": true,
+    "planName": "Basic (3 GB)",
+    "trialDays": 45,
+    "storageLimitGB": 3,
+    "createdAt": "2026-11-12T19:19:05.646Z",
+    "updatedAt": "2026-11-12T22:04:25.568Z",
+    "status": "Ativo",
+    "expiresAt": null
+  }
+}

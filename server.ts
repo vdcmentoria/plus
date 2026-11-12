@@ -702,6 +702,8 @@ async function startServer() {
           ...u,
           role: isAdmin ? 'admin' : (u.role || 'user'),
           isAdmin,
+          trialDays: u.trialDays !== undefined ? Number(u.trialDays) : 7,
+          expiresAt: u.expiresAt || null,
           storageLimitGB: u.storageLimitGB || u.storageGB || 30,
           planName: u.planName || 'Luz (30 GB)',
           status: u.status || 'Ativo'
@@ -1035,6 +1037,8 @@ async function startServer() {
 
       const incomingPhoto = data.photoURL !== undefined ? sanitizeAvatarUrl(data.photoURL) : sanitizeAvatarUrl(existing.photoURL);
 
+      const expiresAt = data.expiresAt !== undefined ? data.expiresAt : (existing.expiresAt || null);
+
       users[uid] = {
         ...existing,
         ...data,
@@ -1044,6 +1048,7 @@ async function startServer() {
         isAdmin,
         planName,
         trialDays,
+        expiresAt,
         storageLimitGB: Number(storageLimitGB || 3),
         createdAt,
         updatedAt: new Date().toISOString(),

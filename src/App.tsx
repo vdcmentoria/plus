@@ -56,6 +56,7 @@ import {
   MapPin,
   Info,
   Clock,
+  Calendar,
   CreditCard,
   Database,
   Instagram,
@@ -122,7 +123,9 @@ import {
   getCollectionStorageBytes, 
   StorageInfo,
   isTrialExpired,
-  getTrialDaysRemaining
+  getTrialDaysRemaining,
+  getUserExpirationDate,
+  getUserDaysRemaining
 } from './lib/storageUtils';
 import { convertToWebP } from './utils/imageOptimizer';
 
@@ -7701,6 +7704,8 @@ function AdminView({
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [addDaysInput, setAddDaysInput] = useState<string>('30');
+  const [daysAddedFeedback, setDaysAddedFeedback] = useState<string | null>(null);
   const [r2Status, setR2Status] = useState<any>(null);
   const [settings, setSettings] = useState<any>({
     defaultTrialDays: 7,
@@ -7854,6 +7859,39 @@ function AdminView({
     }
   };
 
+  const handleAddDays = (days: number) => {
+    if (!editingUser || isNaN(days) || days <= 0) return;
+    const currentExp = getUserExpirationDate(editingUser).getTime();
+    const baseTime = currentExp > Date.now() ? currentExp : Date.now();
+    const newExpDate = new Date(baseTime + days * 24 * 60 * 60 * 1000);
+    const createdTime = editingUser.createdAt ? new Date(editingUser.createdAt).getTime() : Date.now();
+    const totalTrialDays = Math.max(1, Math.ceil((newExpDate.getTime() - createdTime) / (24 * 60 * 60 * 1000)));
+
+    setEditingUser((prev: any) => ({
+      ...prev,
+      expiresAt: newExpDate.toISOString(),
+      trialDays: totalTrialDays,
+      status: 'Ativo'
+    }));
+
+    setDaysAddedFeedback(`+${days} ${days === 1 ? 'dia adicionado' : 'dias adicionados'}! Válido até ${newExpDate.toLocaleDateString('pt-BR')}`);
+    setTimeout(() => setDaysAddedFeedback(null), 3500);
+  };
+
+  const handleSetExactExpirationDate = (dateString: string) => {
+    if (!editingUser || !dateString) return;
+    const chosen = new Date(dateString + 'T23:59:59');
+    if (!isNaN(chosen.getTime())) {
+      const createdTime = editingUser.createdAt ? new Date(editingUser.createdAt).getTime() : Date.now();
+      const totalTrialDays = Math.max(1, Math.ceil((chosen.getTime() - createdTime) / (24 * 60 * 60 * 1000)));
+      setEditingUser((prev: any) => ({
+        ...prev,
+        expiresAt: chosen.toISOString(),
+        trialDays: totalTrialDays
+      }));
+    }
+  };
+
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
@@ -7864,7 +7902,9 @@ function AdminView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...editingUser,
-          storageLimitGB: Number(editingUser.storageLimitGB || 30)
+          storageLimitGB: Number(editingUser.storageLimitGB || 30),
+          trialDays: Number(editingUser.trialDays || 7),
+          expiresAt: editingUser.expiresAt || null
         })
       });
 
@@ -8173,6 +8213,30 @@ function AdminView({
                         <td className="py-4 pr-4">
                           <div className="font-medium text-gray-800 text-xs">{u.planName || 'Luz'}</div>
                           <div className="text-[11px] text-gray-400">Limite: {u.storage.formattedLimit}</div>
+                          {(() => {
+                            const days = getUserDaysRemaining(u);
+                            const isExp = days <= 0;
+                            return (
+                              <div className="mt-1">
+                                {u.role === 'admin' ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 font-medium">
+                                    <Shield className="w-2.5 h-2.5 text-[#D05634]" /> Admin Ilimitado
+                                  </span>
+                                ) : (
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                    isExp 
+                                      ? 'bg-red-50 text-red-600 border border-red-200' 
+                                      : days <= 3 
+                                        ? 'bg-amber-50 text-amber-700 border border-amber-200' 
+                                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  }`}>
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {isExp ? `Expirado (${Math.abs(days)}d)` : `${days} ${days === 1 ? 'dia rest.' : 'dias rest.'}`}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="py-4 pr-4">
                           <div className="flex items-center justify-between text-xs mb-1.5">
@@ -8513,118 +8577,245 @@ function AdminView({
       </div>
 
       {/* Edit User Modal */}
-      {editingUser && (
-        <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-8 border border-gray-100 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">Editar Usuário</h3>
-                <p className="text-xs text-gray-500 truncate max-w-xs">{editingUser.email}</p>
-              </div>
-              <button 
-                onClick={() => setEditingUser(null)}
-                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {editingUser && (() => {
+        const currentDaysRemaining = getUserDaysRemaining(editingUser);
+        const currentExpDate = getUserExpirationDate(editingUser);
+        const isExp = currentDaysRemaining <= 0;
 
-            <form onSubmit={handleSaveUser} className="space-y-4 text-left">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">Nome de Exibição</label>
-                <input 
-                  type="text"
-                  value={editingUser.displayName || ''}
-                  onChange={e => setEditingUser({ ...editingUser, displayName: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">Função no Sistema</label>
-                <select
-                  value={editingUser.role || 'user'}
-                  onChange={e => setEditingUser({ ...editingUser, role: e.target.value, isAdmin: e.target.value === 'admin' })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+        return (
+          <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-lg max-h-[92vh] flex flex-col shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 overflow-hidden">
+              <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-100 shrink-0">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Editar Usuário</h3>
+                  <p className="text-xs text-gray-500 truncate max-w-xs">{editingUser.email}</p>
+                </div>
+                <button 
+                  onClick={() => setEditingUser(null)}
+                  className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 cursor-pointer"
                 >
-                  <option value="user">Fotógrafo / Usuário Padrão</option>
-                  <option value="admin">Administrador (Acesso Total)</option>
-                </select>
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">Limite de Armazenamento (GB)</label>
-                <input 
-                  type="number"
-                  min="1"
-                  max="10000"
-                  value={editingUser.storageLimitGB || 30}
-                  onChange={e => setEditingUser({ ...editingUser, storageLimitGB: Number(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
-                />
+              <div className="p-6 overflow-y-auto space-y-4 text-left">
+                <form id="edit-user-form" onSubmit={handleSaveUser} className="space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">Nome de Exibição</label>
+                    <input 
+                      type="text"
+                      value={editingUser.displayName || ''}
+                      onChange={e => setEditingUser({ ...editingUser, displayName: e.target.value })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">Função no Sistema</label>
+                    <select
+                      value={editingUser.role || 'user'}
+                      onChange={e => setEditingUser({ ...editingUser, role: e.target.value, isAdmin: e.target.value === 'admin' })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                    >
+                      <option value="user">Fotógrafo / Usuário Padrão</option>
+                      <option value="admin">Administrador (Acesso Total)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">Limite de Armazenamento (GB)</label>
+                    <input 
+                      type="number"
+                      min="1"
+                      max="10000"
+                      value={editingUser.storageLimitGB || 30}
+                      onChange={e => setEditingUser({ ...editingUser, storageLimitGB: Number(e.target.value) })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">Nome do Plano</label>
+                    <select
+                      value={editingUser.planName || 'Luz (30 GB)'}
+                      onChange={e => {
+                        const name = e.target.value;
+                        let limit = 30;
+                        if (name.includes('3 GB')) limit = 3;
+                        else if (name.includes('15 GB')) limit = 15;
+                        else if (name.includes('30 GB')) limit = 30;
+                        else if (name.includes('50 GB')) limit = 50;
+                        else if (name.includes('100 GB')) limit = 100;
+                        else if (name.includes('500 GB')) limit = 500;
+                        else if (name.includes('2 TB')) limit = 2048;
+                        else if (name.includes('4 TB')) limit = 4096;
+                        setEditingUser({ ...editingUser, planName: name, storageLimitGB: limit });
+                      }}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                    >
+                      <option value="Basic (3 GB)">Basic (3 GB)</option>
+                      <option value="Crop (15 GB)">Crop (15 GB)</option>
+                      <option value="Luz (30 GB)">Luz (30 GB)</option>
+                      <option value="Shoot (50 GB)">Shoot (50 GB)</option>
+                      <option value="Click (100 GB)">Click (100 GB)</option>
+                      <option value="Plus (500 GB)">Plus (500 GB)</option>
+                      <option value="PRO (2 TB)">PRO (2 TB)</option>
+                      <option value="Founder (4 TB)">Founder (4 TB)</option>
+                    </select>
+                  </div>
+
+                  {/* BLOCO DE DIAS DE USO E VALIDADE */}
+                  <div className="bg-[#FAF9F8] border border-gray-200/90 rounded-2xl p-4 space-y-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-[#FFF0EB] text-[#D05634] flex items-center justify-center shrink-0">
+                          <Calendar className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-900 leading-tight">Dias de Uso & Validade</label>
+                          <span className="text-[10px] text-gray-500">Controle de acesso à ferramenta</span>
+                        </div>
+                      </div>
+
+                      {/* Badge dos Dias Restantes */}
+                      <div className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-2xs shrink-0 ${
+                        editingUser.role === 'admin'
+                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                          : !isExp && currentDaysRemaining > 7 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                            : !isExp 
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse' 
+                              : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}>
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>
+                          {editingUser.role === 'admin'
+                            ? `Admin (${currentDaysRemaining > 0 ? `${currentDaysRemaining}d config.` : 'Vitalício'})`
+                            : !isExp 
+                              ? `Restam ${currentDaysRemaining} ${currentDaysRemaining === 1 ? 'dia' : 'dias'}` 
+                              : `Acesso Expirado (${Math.abs(currentDaysRemaining)}d)`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Resumo com Data de Vencimento e Seletor */}
+                    <div className="bg-white rounded-xl p-3 border border-gray-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                      <div>
+                        <span className="text-gray-400 block text-[10px] uppercase font-bold tracking-wider">Válido até</span>
+                        <span className="font-bold text-gray-900">
+                          {currentExpDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 text-[11px] font-medium">Definir data:</span>
+                        <input 
+                          type="date"
+                          value={!isNaN(currentExpDate.getTime()) ? currentExpDate.toISOString().split('T')[0] : ''}
+                          onChange={e => handleSetExactExpirationDate(e.target.value)}
+                          className="px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-[#D05634] font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Mensagem de sucesso após adicionar dias */}
+                    {daysAddedFeedback && (
+                      <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{daysAddedFeedback}</span>
+                      </div>
+                    )}
+
+                    {/* Botões de Ação Rápida: +7, +15, +30, +90, +365 */}
+                    <div>
+                      <span className="block text-[11px] font-bold text-gray-700 mb-1.5">
+                        Adicionar mais dias ao usuário:
+                      </span>
+                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                        {[
+                          { label: '+7 dias', days: 7 },
+                          { label: '+15 dias', days: 15 },
+                          { label: '+30 dias', days: 30 },
+                          { label: '+90 dias', days: 90 },
+                          { label: '+1 Ano', days: 365 },
+                        ].map((btn) => (
+                          <button
+                            key={btn.days}
+                            type="button"
+                            onClick={() => handleAddDays(btn.days)}
+                            className="py-1.5 px-2 bg-white hover:bg-[#FFF0EB] hover:text-[#D05634] hover:border-[#D05634]/40 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all text-center shadow-2xs active:scale-95 cursor-pointer"
+                          >
+                            {btn.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Input manual de dias customizados */}
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <div className="relative flex-1">
+                        <input 
+                          type="number"
+                          min="1"
+                          max="3650"
+                          value={addDaysInput}
+                          onChange={e => setAddDaysInput(e.target.value)}
+                          placeholder="Ex: 45"
+                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs outline-none focus:border-[#D05634]"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-bold pointer-events-none">
+                          dias
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const d = parseInt(addDaysInput, 10);
+                          if (!isNaN(d) && d > 0) {
+                            handleAddDays(d);
+                          }
+                        }}
+                        className="px-3.5 py-2 bg-[#D05634] hover:bg-[#b84a2b] text-white text-xs font-bold rounded-xl transition-all shadow-xs shrink-0 cursor-pointer flex items-center gap-1 active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Adicionar Dias</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">Status da Conta</label>
+                    <select
+                      value={editingUser.status || 'Ativo'}
+                      onChange={e => setEditingUser({ ...editingUser, status: e.target.value })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
+                    >
+                      <option value="Ativo">Ativo</option>
+                      <option value="Inativo">Inativo</option>
+                    </select>
+                  </div>
+                </form>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">Nome do Plano</label>
-                <select
-                  value={editingUser.planName || 'Luz (30 GB)'}
-                  onChange={e => {
-                    const name = e.target.value;
-                    let limit = 30;
-                    if (name.includes('3 GB')) limit = 3;
-                    else if (name.includes('15 GB')) limit = 15;
-                    else if (name.includes('30 GB')) limit = 30;
-                    else if (name.includes('50 GB')) limit = 50;
-                    else if (name.includes('100 GB')) limit = 100;
-                    else if (name.includes('500 GB')) limit = 500;
-                    else if (name.includes('2 TB')) limit = 2048;
-                    else if (name.includes('4 TB')) limit = 4096;
-                    setEditingUser({ ...editingUser, planName: name, storageLimitGB: limit });
-                  }}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
-                >
-                  <option value="Basic (3 GB)">Basic (3 GB)</option>
-                  <option value="Crop (15 GB)">Crop (15 GB)</option>
-                  <option value="Luz (30 GB)">Luz (30 GB)</option>
-                  <option value="Shoot (50 GB)">Shoot (50 GB)</option>
-                  <option value="Click (100 GB)">Click (100 GB)</option>
-                  <option value="Plus (500 GB)">Plus (500 GB)</option>
-                  <option value="PRO (2 TB)">PRO (2 TB)</option>
-                  <option value="Founder (4 TB)">Founder (4 TB)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1.5">Status da Conta</label>
-                <select
-                  value={editingUser.status || 'Ativo'}
-                  onChange={e => setEditingUser({ ...editingUser, status: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
-                >
-                  <option value="Ativo">Ativo</option>
-                  <option value="Inativo">Inativo</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-4 border-t border-gray-100">
+              <div className="flex gap-3 p-6 pt-4 border-t border-gray-100 shrink-0 bg-gray-50/50">
                 <button 
                   type="button"
                   onClick={() => setEditingUser(null)}
-                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-sm transition-colors"
+                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-sm transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 py-3 bg-[#D05634] hover:bg-[#b84a2b] text-white font-bold rounded-xl text-sm transition-colors shadow-sm"
+                  form="edit-user-form"
+                  className="flex-1 py-3 bg-[#D05634] hover:bg-[#b84a2b] text-white font-bold rounded-xl text-sm transition-colors shadow-sm cursor-pointer"
                 >
                   Salvar
                 </button>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

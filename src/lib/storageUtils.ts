@@ -107,26 +107,36 @@ export function calculateUserStorage(collections: any[] | null | undefined, user
   };
 }
 
+export function getUserExpirationDate(userProfile: any): Date {
+  if (!userProfile) return new Date();
+  if (userProfile.expiresAt) {
+    const d = new Date(userProfile.expiresAt);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const created = userProfile.createdAt ? new Date(userProfile.createdAt).getTime() : Date.now();
+  const trialDays = userProfile.trialDays !== undefined ? Number(userProfile.trialDays) : 7;
+  return new Date(created + (trialDays * 24 * 60 * 60 * 1000));
+}
+
+export function getUserDaysRemaining(userProfile: any): number {
+  if (!userProfile) return 0;
+  const expDate = getUserExpirationDate(userProfile);
+  const diffMs = expDate.getTime() - Date.now();
+  return Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+}
+
 export function isTrialExpired(userProfile: any): boolean {
   if (!userProfile) return false;
   if (userProfile.role === 'admin' || userProfile.isAdmin === true) return false;
   if (userProfile.status === 'Inativo') return true;
   
-  const created = userProfile.createdAt ? new Date(userProfile.createdAt).getTime() : Date.now();
-  const trialDays = userProfile.trialDays !== undefined ? Number(userProfile.trialDays) : 7;
-  const expirationTime = created + (trialDays * 24 * 60 * 60 * 1000);
-  
-  return Date.now() > expirationTime;
+  const expDate = getUserExpirationDate(userProfile);
+  return Date.now() > expDate.getTime();
 }
 
 export function getTrialDaysRemaining(userProfile: any): number {
   if (!userProfile) return 0;
   if (userProfile.role === 'admin' || userProfile.isAdmin === true) return 999;
   
-  const created = userProfile.createdAt ? new Date(userProfile.createdAt).getTime() : Date.now();
-  const trialDays = userProfile.trialDays !== undefined ? Number(userProfile.trialDays) : 7;
-  const expirationTime = created + (trialDays * 24 * 60 * 60 * 1000);
-  
-  const remainingMs = expirationTime - Date.now();
-  return Math.max(0, Math.ceil(remainingMs / (24 * 60 * 60 * 1000)));
+  return Math.max(0, getUserDaysRemaining(userProfile));
 }
