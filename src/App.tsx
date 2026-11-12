@@ -70,7 +70,8 @@ import {
   RefreshCcw,
   RefreshCw,
   Share2,
-  Award
+  Award,
+  Copy
 } from 'lucide-react';
 
 import { 
@@ -7689,11 +7690,14 @@ function AdminView({
   user?: any | null;
   isAdmin?: boolean;
 }) {
-  const [activeTab, setActiveTab] = useState<'usuarios' | 'armazenamento' | 'planos'>('usuarios');
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'sites' | 'armazenamento' | 'planos'>('usuarios');
   const [usersList, setUsersList] = useState<any[]>([]);
   const [allCollections, setAllCollections] = useState<any[]>([]);
+  const [allSites, setAllSites] = useState<any[]>([]);
+  const [copiedSiteId, setCopiedSiteId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [siteSearchTerm, setSiteSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [editingUser, setEditingUser] = useState<any | null>(null);
@@ -7705,15 +7709,28 @@ function AdminView({
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
 
-  // Fetch real users and collections for Admin
+  const getPublicSiteUrl = (site: any): string => {
+    if (!site) return '';
+    if (site.customDomain) {
+      const clean = site.customDomain.replace(/^https?:\/\//, '').trim();
+      return `https://${clean}`;
+    }
+    const slug = site.slug || site.id || 'default';
+    const host = typeof window !== 'undefined' ? window.location.host : '';
+    const protocol = typeof window !== 'undefined' ? window.location.protocol : 'https:';
+    return `${protocol}//${host}/?gallery=${slug}`;
+  };
+
+  // Fetch real users, collections and sites for Admin
   const loadAdminData = async () => {
     setIsLoading(true);
     try {
-      const [usersRes, collsRes, healthRes, settingsRes] = await Promise.all([
+      const [usersRes, collsRes, healthRes, settingsRes, sitesRes] = await Promise.all([
         fetch('/api/users'),
         fetch('/api/collections'),
         fetch('/api/health'),
-        fetch('/api/settings')
+        fetch('/api/settings'),
+        fetch('/api/sites')
       ]);
 
       if (usersRes.ok) {
@@ -7723,6 +7740,10 @@ function AdminView({
       if (collsRes.ok) {
         const colls = await collsRes.json();
         setAllCollections(Array.isArray(colls) ? colls : []);
+      }
+      if (sitesRes.ok) {
+        const sites = await sitesRes.json();
+        setAllSites(Array.isArray(sites) ? sites : []);
       }
       if (healthRes.ok) {
         const health = await healthRes.json();
@@ -7771,13 +7792,30 @@ function AdminView({
   const totalPlatformGB = totalPlatformBytes / (1024 * 1024 * 1024);
   const formattedPlatformStorage = totalPlatformGB >= 1 ? `${totalPlatformGB.toFixed(2)} GB` : `${totalPlatformMB.toFixed(1)} MB`;
 
-  // Compute storage for each user
+  // Compute storage and sites for each user
   const enrichedUsers = usersList.map(u => {
-    const userColls = allCollections.filter(c => c.ownerId?.toLowerCase() === u.uid?.toLowerCase());
+    const uEmail = (u.email || '').toLowerCase().trim();
+    const uId = (u.uid || '').toLowerCase().trim();
+
+    const userColls = allCollections.filter(c => 
+      (c.ownerId && c.ownerId.toLowerCase() === uId) || 
+      (uEmail && c.ownerEmail && c.ownerEmail.toLowerCase() === uEmail)
+    );
+
+    const userSites = allSites.filter(s => 
+      (s.ownerId && s.ownerId.toLowerCase() === uId) || 
+      (uEmail && (
+        (s.ownerEmail && s.ownerEmail.toLowerCase() === uEmail) || 
+        (s.contactEmail && s.contactEmail.toLowerCase() === uEmail)
+      ))
+    );
+
     const storage = calculateUserStorage(userColls, u);
     return {
       ...u,
       collectionsCount: userColls.length,
+      sites: userSites,
+      primarySite: userSites[0] || null,
       storage
     };
   });
@@ -7930,11 +7968,21 @@ function AdminView({
         </div>
 
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+            <Globe className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Sites Pro Ativos</div>
+            <div className="text-2xl font-bold text-gray-900">{allSites.length}</div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
             <HardDrive className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-xs text-gray-500 font-medium">Armazenamento Total Usado</div>
+            <div className="text-xs text-gray-500 font-medium">Armazenamento Usado</div>
             <div className="text-2xl font-bold text-gray-900">{formattedPlatformStorage}</div>
           </div>
         </div>
@@ -7946,19 +7994,6 @@ function AdminView({
           <div>
             <div className="text-xs text-gray-500 font-medium">Coleções Criadas</div>
             <div className="text-2xl font-bold text-gray-900">{allCollections.length}</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-green-50 text-green-600 flex items-center justify-center shrink-0">
-            <Shield className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-xs text-gray-500 font-medium">Cloudflare R2</div>
-            <div className="text-sm font-bold text-green-700 flex items-center gap-1.5 mt-1">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-              {r2Status?.r2Configured ? 'Conectado e Ativo' : 'Operacional'}
-            </div>
           </div>
         </div>
       </div>
@@ -7976,6 +8011,16 @@ function AdminView({
             <Users className="w-4 h-4" /> Usuários ({usersList.length})
           </button>
           <button 
+            onClick={() => setActiveTab('sites')}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === 'sites' 
+                ? 'bg-[#D05634] text-white shadow-sm' 
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Globe className="w-4 h-4" /> Sites Pro ({allSites.length})
+          </button>
+          <button 
             onClick={() => setActiveTab('armazenamento')}
             className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'armazenamento' 
@@ -7983,7 +8028,7 @@ function AdminView({
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <HardDrive className="w-4 h-4" /> Armazenamento e R2
+            <HardDrive className="w-4 h-4" /> Armazenamento
           </button>
           <button 
             onClick={() => setActiveTab('planos')}
@@ -7993,7 +8038,7 @@ function AdminView({
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <Settings className="w-4 h-4" /> Planos e Trial
+            <Settings className="w-4 h-4" /> Planos
           </button>
         </div>
       </div>
@@ -8057,9 +8102,10 @@ function AdminView({
                   <thead>
                     <tr className="text-left text-gray-500 border-b border-gray-100">
                       <th className="pb-3 font-medium whitespace-nowrap">Usuário</th>
+                      <th className="pb-3 font-medium whitespace-nowrap min-w-[220px]">Site Pro do Usuário</th>
                       <th className="pb-3 font-medium whitespace-nowrap">Função</th>
                       <th className="pb-3 font-medium whitespace-nowrap">Plano</th>
-                      <th className="pb-3 font-medium whitespace-nowrap min-w-[220px]">Armazenamento Consumido</th>
+                      <th className="pb-3 font-medium whitespace-nowrap min-w-[180px]">Armazenamento Consumido</th>
                       <th className="pb-3 font-medium whitespace-nowrap">Status</th>
                       <th className="pb-3 font-medium text-right whitespace-nowrap">Ações</th>
                     </tr>
@@ -8071,6 +8117,47 @@ function AdminView({
                           <div className="font-bold text-gray-900">{u.displayName || 'Sem nome informado'}</div>
                           <div className="text-gray-500 text-xs truncate max-w-xs">{u.email}</div>
                           <div className="text-[10px] text-gray-400 font-mono mt-0.5">{u.collectionsCount || 0} coleções</div>
+                        </td>
+                        <td className="py-4 pr-4">
+                          {u.sites && u.sites.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {u.sites.map((s: any, sIdx: number) => {
+                                const siteUrl = getPublicSiteUrl(s);
+                                const isCopied = copiedSiteId === s.id;
+                                return (
+                                  <div key={s.id || sIdx} className="flex items-center gap-1.5">
+                                    <a
+                                      href={siteUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FFF0EB] hover:bg-[#ffe4dc] border border-[#D05634]/20 text-[#D05634] text-xs font-bold transition-all truncate max-w-[240px]"
+                                      title={`Abrir site ${s.photographerName || s.title || ''} em nova aba`}
+                                    >
+                                      <Globe className="w-3.5 h-3.5 shrink-0 text-[#D05634]" />
+                                      <span className="truncate">{s.photographerName || s.title || 'Meu Site Pro'}</span>
+                                      <ExternalLink className="w-3 h-3 shrink-0 opacity-70 ml-0.5" />
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(siteUrl);
+                                        setCopiedSiteId(s.id);
+                                        setTimeout(() => setCopiedSiteId(null), 2000);
+                                      }}
+                                      className="p-1 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors shrink-0"
+                                      title="Copiar link direto do site"
+                                    >
+                                      {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-100">
+                              <Globe className="w-3 h-3 opacity-40" /> Sem site criado
+                            </span>
+                          )}
                         </td>
                         <td className="py-4 pr-4">
                           {u.role === 'admin' ? (
@@ -8090,7 +8177,7 @@ function AdminView({
                         <td className="py-4 pr-4">
                           <div className="flex items-center justify-between text-xs mb-1.5">
                             <span className="font-medium text-gray-700">
-                              {u.storage.formattedUsed} de {u.storage.formattedLimit}
+                              {u.storage.formattedUsed}
                             </span>
                             <span className={`font-bold ${u.storage.isOverLimit ? 'text-red-500' : 'text-gray-500'}`}>
                               {u.storage.formattedPercent}
@@ -8113,7 +8200,16 @@ function AdminView({
                           </span>
                         </td>
                         <td className="py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {u.primarySite && (
+                              <button 
+                                onClick={() => window.open(getPublicSiteUrl(u.primarySite), '_blank')}
+                                title="Visualizar site do usuário"
+                                className="p-2 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#D05634] text-xs font-semibold transition-colors"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button 
                               onClick={() => handleToggleAdminRole(u)}
                               title={u.role === 'admin' ? "Remover privilégio Admin" : "Tornar Admin"}
@@ -8138,6 +8234,119 @@ function AdminView({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'sites' && (
+          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Sites Pro dos Usuários ({allSites.length})</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Lista completa de todos os sites de fotógrafos criados e publicados na plataforma.
+                </p>
+              </div>
+              <div className="relative w-full md:w-80">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input 
+                  type="text" 
+                  value={siteSearchTerm}
+                  onChange={e => setSiteSearchTerm(e.target.value)}
+                  placeholder="Buscar por fotógrafo, título ou e-mail..." 
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2 text-xs outline-none focus:border-[#D05634]" 
+                />
+              </div>
+            </div>
+
+            {allSites.length === 0 ? (
+              <div className="py-16 text-center text-gray-400">
+                <Globe className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                <p className="text-base font-bold text-gray-700">Nenhum site encontrado</p>
+                <p className="text-xs text-gray-400 mt-1">Os sites criados pelos usuários aparecerão automaticamente aqui.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allSites
+                  .filter((s) => {
+                    const term = siteSearchTerm.toLowerCase();
+                    return (
+                      (s.photographerName || '').toLowerCase().includes(term) ||
+                      (s.title || '').toLowerCase().includes(term) ||
+                      (s.ownerEmail || '').toLowerCase().includes(term) ||
+                      (s.contactEmail || '').toLowerCase().includes(term) ||
+                      (s.slug || '').toLowerCase().includes(term)
+                    );
+                  })
+                  .map((s) => {
+                    const siteUrl = getPublicSiteUrl(s);
+                    const isCopied = copiedSiteId === s.id;
+                    const crmEnabled = Boolean(s.quoteFormConfig?.crmIntegrationEnabled);
+
+                    return (
+                      <div key={s.id} className="p-5 rounded-2xl border border-gray-200/80 bg-white hover:border-[#D05634]/40 hover:shadow-lg transition-all space-y-3.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-bold text-gray-900 text-sm truncate">
+                              {s.photographerName || s.title || 'Meu Site Pro'}
+                            </h4>
+                            <p className="text-xs text-gray-500 truncate">
+                              {s.ownerEmail || s.contactEmail || 'Usuário Sem E-mail'}
+                            </p>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase tracking-wider shrink-0">
+                            Publicado
+                          </span>
+                        </div>
+
+                        {/* Direct Link Display */}
+                        <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100 space-y-1">
+                          <span className="text-[9px] font-black uppercase text-gray-400 block tracking-wider">
+                            Link Público do Site
+                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-mono font-semibold text-gray-800 truncate">
+                              {siteUrl}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(siteUrl);
+                                setCopiedSiteId(s.id);
+                                setTimeout(() => setCopiedSiteId(null), 2000);
+                              }}
+                              className="p-1 rounded bg-white hover:bg-gray-200 text-gray-600 border border-gray-200 transition-colors shrink-0 cursor-pointer"
+                              title="Copiar Link"
+                            >
+                              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* CRM Pipeline Status */}
+                        {crmEnabled && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-bold bg-emerald-50/70 p-2 rounded-xl border border-emerald-200/50">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <span className="truncate">
+                              FramePRO CRM: {s.quoteFormConfig.crmPipelineName || 'Funil'} → {s.quoteFormConfig.crmColumnName || 'Coluna'}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="pt-1 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => window.open(siteUrl, '_blank')}
+                            className="w-full py-2 px-3 rounded-xl bg-[#D05634] hover:bg-[#b84a2b] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Abrir Site Ao Vivo</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </div>
