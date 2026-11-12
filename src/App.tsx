@@ -1979,7 +1979,7 @@ function CollectionsView({
           visibleCollections.map((item) => (
             <div 
               key={item.id} 
-              className="flex flex-col group cursor-pointer relative animate-in fade-in slide-in-from-bottom-4 duration-500 hover:scale-[1.03] transition-all duration-300 rounded-[2rem] border border-gray-200/80 dark:border-zinc-800/80 p-1 bg-white/40 dark:bg-zinc-900/40 shadow-sm hover:shadow-2xl hover:shadow-[#D05634]/10 hover:border-[#D05634]/40" 
+              className="flex flex-col group cursor-pointer relative animate-in fade-in slide-in-from-bottom-4 duration-500 hover:scale-[1.03] transition-transform duration-300" 
               draggable={item.type === 'collection'}
               onDragStart={item.type === 'collection' ? (e) => handleDragStart(e, item) : undefined}
               onDragOver={item.type === 'folder' ? (e) => handleDragOver(e, item) : undefined}
