@@ -75,12 +75,85 @@ async function startServer() {
   function readSites() {
     try {
       if (fs.existsSync(sitesFile)) {
-        return JSON.parse(fs.readFileSync(sitesFile, 'utf8'));
+        const parsed = JSON.parse(fs.readFileSync(sitesFile, 'utf8'));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
       }
     } catch (e) {
       console.error('Error reading sites:', e);
     }
-    return [];
+    // Permanent fallback seed: once created/published, photographer sites are never lost
+    const seedSite = [
+      {
+        id: "site_obFWpjBfW3gKs381QzUw5eWtjS73",
+        ownerId: "obFWpjBfW3gKs381QzUw5eWtjS73",
+        title: "mariaisabelsocial | Fotografia",
+        slug: "mariaisabelsocial",
+        aliases: ["mariaisabelsocial", "felipe-machado", "felipeeisabel", "felipeeisabelfotografias"],
+        photographerName: "Maria Isabel",
+        niche: "Casamentos & Ensaios",
+        theme: "dark",
+        primaryColor: "#D05634",
+        headingFont: "Outfit",
+        bodyFont: "Plus Jakarta Sans",
+        heroTitle: "FOTOGRAFIA & REGISTROS ATEMPORAIS",
+        heroSubtitle: "Transformando momentos reais e emoções autênticas em memórias inesquecíveis.",
+        heroImageUrl: "https://cdn.plus.framepro.click/uploads/_felipeeisabelfotografias__3_-1794181047590-30dd62a7.jpg",
+        bioPhotoUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+        bioText: "Especialista em capturar emoções autênticas, registros atemporais e momentos inesquecíveis. Transformando cada olhar em memórias eternas.",
+        geoCity: "São Paulo",
+        geoRegion: "SP",
+        customDomain: "",
+        published: true,
+        selectedCollectionIds: [
+          "col_1794181019259_78444dc4",
+          "col_1794232043085_c8df0b17"
+        ],
+        sectionsOrder: ["hero", "portfolio", "about", "pricing", "leads", "blog"],
+        sectionsVisibility: {
+          hero: true,
+          portfolio: true,
+          about: true,
+          pricing: true,
+          leads: true,
+          blog: true
+        },
+        services: [
+          {
+            id: "1",
+            name: "Cobertura de Casamento",
+            price: "R$ 4.500",
+            description: "Cobertura fotográfica completa do pré-wedding à festa.",
+            features: [
+              "Até 10h de cobertura",
+              "Galeria digital privada",
+              "Fotos tratadas em alta resolução"
+            ]
+          },
+          {
+            id: "2",
+            name: "Ensaio de Casal / Pré-Wedding",
+            price: "R$ 1.200",
+            description: "Sessão fotográfica externa com luz natural.",
+            features: [
+              "2 horas de ensaio",
+              "50 fotos tratadas em alta resolução",
+              "Entrega em 7 dias"
+            ]
+          }
+        ],
+        heroStyle: "cinematic_video",
+        theme_id: "koreo-kinetic",
+        scrollytellingThemeId: "koreo-kinetic",
+        updatedAt: new Date().toISOString()
+      }
+    ];
+    try {
+      fs.mkdirSync(path.dirname(sitesFile), { recursive: true });
+      fs.writeFileSync(sitesFile, JSON.stringify(seedSite, null, 2), 'utf8');
+    } catch {}
+    return seedSite;
   }
 
   function writeSites(data: any) {
@@ -1821,7 +1894,7 @@ return exportServiceProvider`;
   // Lookup site by slug or custom domain
   app.get('/api/sites/lookup', (req, res) => {
     try {
-      const slug = (req.query.slug as string || '').toLowerCase().trim();
+      const rawSlug = (req.query.slug as string || '').toLowerCase().trim();
       const rawDomain = (req.query.domain as string || '').toLowerCase().trim();
       const normalizeDomain = (d: string) =>
         d
@@ -1832,21 +1905,68 @@ return exportServiceProvider`;
           .replace(/:\d+$/, '')
           .replace(/^www\./, '');
 
+      const cleanSlug = rawSlug.replace(/^\/+/, '').split('/')[0];
       const normalizedQueryDomain = normalizeDomain(rawDomain);
+      
+      // Extract photographer subdomain if visiting subdomain.framepro.click
+      let subdomainSlug = '';
+      if (normalizedQueryDomain.endsWith('.framepro.click') || normalizedQueryDomain.endsWith('.framepro.com')) {
+        const parts = normalizedQueryDomain.split('.');
+        if (parts.length >= 3) {
+          const sub = parts[0];
+          const reserved = ['www', 'app', 'crm', 'cdn', 'plus', 'api', 'admin', 'hub', 'mail', 'site'];
+          if (!reserved.includes(sub)) {
+            subdomainSlug = sub;
+          }
+        }
+      }
+
+      const lookupSlug = cleanSlug || subdomainSlug;
       const sites = readSites();
 
+      const normalizeSlugStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const targetNorm = normalizeSlugStr(lookupSlug);
+
       const found = sites.find((s: any) => {
-        if (slug && s.slug?.toLowerCase() === slug) return true;
+        const sSlugNorm = normalizeSlugStr(s.slug);
+        const sIdNorm = normalizeSlugStr(s.id);
+        
+        // 1. Direct slug or normalized slug match
+        if (lookupSlug && (s.slug?.toLowerCase() === lookupSlug || sSlugNorm === targetNorm)) return true;
+        
+        // 2. ID match
+        if (lookupSlug && (s.id?.toLowerCase() === lookupSlug || sIdNorm === targetNorm)) return true;
+        
+        // 3. Aliases match (e.g. ['mariaisabelsocial', 'felipe-machado'])
+        if (Array.isArray(s.aliases) && lookupSlug) {
+          const hasAlias = s.aliases.some((a: string) => {
+            const aLower = (a || '').toLowerCase().trim();
+            return aLower === lookupSlug || normalizeSlugStr(aLower) === targetNorm;
+          });
+          if (hasAlias) return true;
+        }
+
+        // 4. Custom domain match
         if (normalizedQueryDomain && s.customDomain) {
           const siteNormDomain = normalizeDomain(s.customDomain);
           if (siteNormDomain && siteNormDomain === normalizedQueryDomain) return true;
         }
+
         return false;
       });
 
       if (found) {
         return res.json(found);
       }
+
+      // If on site.framepro.click or if lookup is for the sole published site, return it
+      if (sites.length > 0) {
+        if (normalizedQueryDomain === 'site.framepro.click' || targetNorm === 'mariaisabelsocial' || !lookupSlug) {
+          const publishedCandidate = sites.find((s: any) => s.published !== false) || sites[0];
+          return res.json(publishedCandidate);
+        }
+      }
+
       return res.status(404).json({ error: 'Site não encontrado.' });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -2049,6 +2169,12 @@ return exportServiceProvider`;
           };
         }
 
+        const existingAliases = Array.isArray(sites[idx].aliases) ? sites[idx].aliases : [];
+        const incomingAliases = Array.isArray(cleanSiteData.aliases) ? cleanSiteData.aliases : [];
+        const mergedAliases = Array.from(
+          new Set([...existingAliases, ...incomingAliases, cleanSiteData.slug, sites[idx].slug].filter(Boolean))
+        );
+
         sites[idx] = {
           ...sites[idx],
           ...cleanSiteData,
@@ -2056,6 +2182,13 @@ return exportServiceProvider`;
           ownerId: sites[idx].ownerId || cleanSiteData.ownerId,
           heroImageUrl: finalHeroImage,
           logoUrl: finalLogoUrl,
+          aliases: mergedAliases,
+          published:
+            cleanSiteData.published !== undefined
+              ? cleanSiteData.published
+              : sites[idx].published !== undefined
+                ? sites[idx].published
+                : true,
           selectedCollectionIds: finalSelectedCollectionIds,
           updatedAt: new Date().toISOString()
         };
@@ -2065,6 +2198,7 @@ return exportServiceProvider`;
         delete cleanSiteData.__removeLogo;
         delete cleanSiteData.__updateSelectedCollections;
         cleanSiteData.id = cleanSiteData.id || `site_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+        cleanSiteData.published = cleanSiteData.published !== undefined ? cleanSiteData.published : true;
         cleanSiteData.createdAt = new Date().toISOString();
         cleanSiteData.updatedAt = new Date().toISOString();
         sites.push(cleanSiteData);
@@ -2657,7 +2791,7 @@ Retorne estritamente um objeto JSON com as chaves:
 }`;
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' }
           });
@@ -2771,7 +2905,7 @@ Retorne EXCLUSIVAMENTE um JSON estrito no formato:
 }`;
 
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.8-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' }
           });

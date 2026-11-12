@@ -409,7 +409,13 @@ export function PublicWebsiteView({
     const fetchSite = async () => {
       try {
         setLoadingSite(true);
-        const targetSlug = siteSlug || new URLSearchParams(window.location.search).get('site') || '';
+        const queryParams = new URLSearchParams(window.location.search);
+        const targetSlug =
+          siteSlug ||
+          queryParams.get('site') ||
+          queryParams.get('s') ||
+          queryParams.get('gallery') ||
+          '';
         const hostDomain = window.location.hostname;
         
         const res = await fetch(`/api/sites/lookup?slug=${encodeURIComponent(targetSlug)}&domain=${encodeURIComponent(hostDomain)}`);
@@ -422,8 +428,9 @@ export function PublicWebsiteView({
           if (resAll.ok) {
             const all = await resAll.json();
             if (all.length > 0) {
-              setSite(all[0]);
-              if (all[0].niche) setFormEventType(all[0].niche);
+              const activeCandidate = all.find((s: any) => s.published !== false) || all[0];
+              setSite(activeCandidate);
+              if (activeCandidate.niche) setFormEventType(activeCandidate.niche);
             }
           }
         }
@@ -574,6 +581,24 @@ export function PublicWebsiteView({
           <p className="text-zinc-400 text-sm max-w-md mx-auto mb-6">O site informado não existe ou o domínio ainda não foi configurado.</p>
           <button onClick={() => window.location.href = '/?app=1'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest hover:bg-[#b84a2b] transition-colors cursor-pointer">
             Voltar para o Frame+
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Once published, the site ONLY goes offline if the photographer explicitly unpublishes it
+  if (site.published === false && !isEditorPreview) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-8 text-center">
+        <div>
+          <div className="w-16 h-16 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-500">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Site Temporariamente em Rascunho</h1>
+          <p className="text-zinc-400 text-sm max-w-md mx-auto mb-6">O fotógrafo definiu este site como rascunho para manutenção ou atualizações. Ele estará de volta em breve!</p>
+          <button onClick={() => window.location.href = '/?app=1'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest hover:bg-[#b84a2b] transition-colors cursor-pointer">
+            Acessar Plataforma Frame+
           </button>
         </div>
       </div>

@@ -517,7 +517,7 @@ export function SiteBuilderView({
   const defaultBrandSlug = (
     userProfile?.displayName ||
     user?.displayName ||
-    (isFelipeAccount ? 'felipe-machado' : 'seu-nome')
+    (isFelipeAccount ? 'mariaisabelsocial' : 'seu-nome')
   )
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-');
@@ -1244,7 +1244,15 @@ export function SiteBuilderView({
       });
 
       if (res.ok) {
-        setSeoAudit(await res.json());
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          setSeoAudit(await res.json());
+        } else {
+          throw new Error("Servidor retornou HTML em vez de JSON.");
+        }
+      } else {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`Erro HTTP ${res.status}: ${errText.slice(0, 100)}`);
       }
     } catch (err) {
       console.error('Error auditing SEO & GEO:', err);

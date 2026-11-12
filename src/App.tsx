@@ -7718,7 +7718,7 @@ function AdminView({
     const slug = site.slug || site.id || 'default';
     const host = typeof window !== 'undefined' ? window.location.host : '';
     const protocol = typeof window !== 'undefined' ? window.location.protocol : 'https:';
-    return `${protocol}//${host}/?gallery=${slug}`;
+    return `${protocol}//${host}/?site=${slug}`;
   };
 
   // Fetch real users, collections and sites for Admin
@@ -9376,9 +9376,26 @@ export default function App() {
   const querySiteSlug = urlParams.get('site') || urlParams.get('s');
   const reservedPaths = ['admin', 'hub', 'dashboard', 'planos', 'colecoes', 'inicio', 'editor', 'login', 'cadastro', 'configuracoes', 'api', 'site'];
   const pathSiteSlug = (!reservedPaths.includes(pathSegment.toLowerCase()) && pathSegment && !pathSegment.includes('.')) ? pathSegment : '';
-  const siteSlug = querySiteSlug || pathSiteSlug;
   const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
   const customPlatformHost = ((import.meta as any).env?.VITE_PLATFORM_HOST || '').toLowerCase();
+  
+  // Dedicated photographer public site host detection (e.g. site.framepro.click)
+  const isSiteHost = !forceMainApp && (currentHost === 'site.framepro.click' || currentHost.startsWith('site.'));
+
+  // Extract photographer subdomain if visiting subdomain.framepro.click or subdomain.framepro.com
+  let hostSubdomainSlug = '';
+  if (!forceMainApp && (currentHost.endsWith('.framepro.click') || currentHost.endsWith('.framepro.com'))) {
+    const parts = currentHost.split('.');
+    if (parts.length >= 3) {
+      const sub = parts[0];
+      const reservedSubs = ['www', 'app', 'crm', 'cdn', 'plus', 'api', 'admin', 'hub', 'mail', 'site'];
+      if (!reservedSubs.includes(sub)) {
+        hostSubdomainSlug = sub;
+      }
+    }
+  }
+
+  const siteSlug = querySiteSlug || pathSiteSlug || hostSubdomainSlug;
   
   const isPlatformHost =
     forceMainApp ||
@@ -9401,7 +9418,7 @@ export default function App() {
     currentHost.endsWith('.fly.dev') ||
     currentHost.endsWith('.pages.dev');
   const isCustomDomainHost = !isPlatformHost && !gallerySlug && (!pathSegment || !reservedPaths.includes(pathSegment.toLowerCase()));
-  const isPublicView = !forceMainApp && (!!gallerySlug || !!siteSlug || isCustomDomainHost);
+  const isPublicView = !forceMainApp && (!!gallerySlug || !!siteSlug || isCustomDomainHost || isSiteHost);
 
   // 0. Connection check (Non-blocking warning)
   useEffect(() => {
@@ -9777,8 +9794,19 @@ export default function App() {
                 );
                 finalDocs.push(...children);
               }
+            } else {
+              // gallerySlug did not match an individual photo collection!
+              // It is very likely a published site slug (like ?gallery=mariaisabelsocial).
+              // Populate finalDocs with published collections so the site view has portfolio photos ready!
+              finalDocs = allCollections.filter((c: any) => {
+                const isPub = !c.status || publicStatusList.includes(c.status);
+                return isPub;
+              });
+              if (finalDocs.length === 0 && allCollections.length > 0) {
+                finalDocs = allCollections;
+              }
             }
-          } else if (siteSlug) {
+          } else if (siteSlug || isCustomDomainHost || isSiteHost) {
             // 2. Full photographer website view: load all published collections
             finalDocs = allCollections.filter((c: any) => {
               const isPub = !c.status || publicStatusList.includes(c.status);
@@ -9799,7 +9827,7 @@ export default function App() {
       }
     };
     loadPublic();
-  }, [isPublicView, gallerySlug, siteSlug]);
+  }, [isPublicView, gallerySlug, siteSlug, isSiteHost, isCustomDomainHost]);
 
   // 4. Persistence / Sync for guest users
   useEffect(() => {
@@ -10043,7 +10071,7 @@ export default function App() {
   }
 
   // Handle routing
-  if (siteSlug || isCustomDomainHost) {
+  if (siteSlug || isCustomDomainHost || (isSiteHost && !gallerySlug)) {
     return <PublicWebsiteView siteSlug={siteSlug} collections={collectionsState || []} />;
   }
 
@@ -10091,25 +10119,9 @@ export default function App() {
       }
     }
     
-    // If we're in public view and data loaded but nothing found
-    if (isPublicView) {
-      return (
-        <div className="min-h-screen bg-white flex flex-col items-center justify-center p-8 text-center">
-          <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6 text-gray-300">
-            <Lock className="w-10 h-10" />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Galeria não encontrada ou privada</h1>
-          <p className="text-gray-500 max-w-sm mb-2">A galeria que você está procurando não existe ou está definida como rascunho pelo fotógrafo.</p>
-          <p className="text-xs text-gray-400 max-w-xs">Verifique se o link está correto ou entre em contato com o responsável.</p>
-          <button 
-            onClick={() => window.location.href = '/'}
-            className="mt-8 text-[#D05634] font-bold hover:underline"
-          >
-            Voltar para o Início
-          </button>
-        </div>
-      );
-    }
+    // If not found in collectionsState, route to PublicWebsiteView!
+    // This allows links like ?gallery=mariaisabelsocial to load the photographer's published website seamlessly
+    return <PublicWebsiteView siteSlug={gallerySlug} collections={collectionsState || []} />;
   }
 
   return (
