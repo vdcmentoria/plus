@@ -7723,7 +7723,7 @@ function AdminView({
     const slug = site.slug || site.id || 'default';
     const host = typeof window !== 'undefined' ? window.location.host : '';
     const protocol = typeof window !== 'undefined' ? window.location.protocol : 'https:';
-    return `${protocol}//${host}/?site=${slug}`;
+    return `${protocol}//${host}/${slug}`;
   };
 
   // Fetch real users, collections and sites for Admin
@@ -9566,14 +9566,13 @@ export default function App() {
   const gallerySlug = urlParams.get('gallery');
   const querySiteSlug = urlParams.get('site') || urlParams.get('s');
   const reservedPaths = ['admin', 'hub', 'dashboard', 'planos', 'colecoes', 'inicio', 'editor', 'login', 'cadastro', 'configuracoes', 'api', 'site'];
-  const pathSiteSlug = (!reservedPaths.includes(pathSegment.toLowerCase()) && pathSegment && !pathSegment.includes('.')) ? pathSegment : '';
+  const pathSiteSlug = (!forceMainApp && !reservedPaths.includes(pathSegment.toLowerCase()) && pathSegment && !pathSegment.includes('.')) ? pathSegment : '';
   const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
   const customPlatformHost = ((import.meta as any).env?.VITE_PLATFORM_HOST || '').toLowerCase();
-  
-  // Dedicated photographer public site host detection (e.g. site.framepro.click)
-  const isSiteHost = !forceMainApp && (currentHost === 'site.framepro.click' || currentHost.startsWith('site.'));
 
-  // Extract photographer subdomain if visiting subdomain.framepro.click or subdomain.framepro.com
+  // Extract photographer subdomain if visiting <photographer>.framepro.click or <photographer>.framepro.com
+  // Note: site.framepro.click is a reserved platform host where the main program runs on `/`
+  // and published sites live at `site.framepro.click/<slug>`.
   let hostSubdomainSlug = '';
   if (!forceMainApp && (currentHost.endsWith('.framepro.click') || currentHost.endsWith('.framepro.com'))) {
     const parts = currentHost.split('.');
@@ -9586,7 +9585,7 @@ export default function App() {
     }
   }
 
-  const siteSlug = querySiteSlug || pathSiteSlug || hostSubdomainSlug;
+  const siteSlug = forceMainApp ? '' : (querySiteSlug || pathSiteSlug || hostSubdomainSlug);
   
   const isPlatformHost =
     forceMainApp ||
@@ -9609,7 +9608,7 @@ export default function App() {
     currentHost.endsWith('.fly.dev') ||
     currentHost.endsWith('.pages.dev');
   const isCustomDomainHost = !isPlatformHost && !gallerySlug && (!pathSegment || !reservedPaths.includes(pathSegment.toLowerCase()));
-  const isPublicView = !forceMainApp && (!!gallerySlug || !!siteSlug || isCustomDomainHost || isSiteHost);
+  const isPublicView = !forceMainApp && (!!gallerySlug || !!siteSlug || isCustomDomainHost);
 
   // 0. Connection check (Non-blocking warning)
   useEffect(() => {
@@ -9997,7 +9996,7 @@ export default function App() {
                 finalDocs = allCollections;
               }
             }
-          } else if (siteSlug || isCustomDomainHost || isSiteHost) {
+          } else if (siteSlug || isCustomDomainHost) {
             // 2. Full photographer website view: load all published collections
             finalDocs = allCollections.filter((c: any) => {
               const isPub = !c.status || publicStatusList.includes(c.status);
@@ -10018,7 +10017,7 @@ export default function App() {
       }
     };
     loadPublic();
-  }, [isPublicView, gallerySlug, siteSlug, isSiteHost, isCustomDomainHost]);
+  }, [isPublicView, gallerySlug, siteSlug, isCustomDomainHost]);
 
   // 4. Persistence / Sync for guest users
   useEffect(() => {
@@ -10262,7 +10261,7 @@ export default function App() {
   }
 
   // Handle routing
-  if (siteSlug || isCustomDomainHost || (isSiteHost && !gallerySlug)) {
+  if (siteSlug || isCustomDomainHost) {
     return <PublicWebsiteView siteSlug={siteSlug} collections={collectionsState || []} />;
   }
 

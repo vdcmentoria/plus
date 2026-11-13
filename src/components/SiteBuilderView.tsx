@@ -1501,7 +1501,7 @@ export function SiteBuilderView({
   const siteLiveUrl =
     cleanCustomDomain && siteData.domainStatus === 'connected'
       ? `https://${cleanCustomDomain}`
-      : `${window.location.origin}/?site=${siteData.slug}`;
+      : `${window.location.origin}/${siteData.slug}`;
 
   const copyLiveLink = () => {
     navigator.clipboard.writeText(siteLiveUrl);
@@ -8735,7 +8735,7 @@ export function SiteBuilderView({
                         />
                         <button
                           type="button"
-                          onClick={() => copyDnsValue('slug_url', `${window.location.origin}/?site=${siteData.slug}`)}
+                          onClick={() => copyDnsValue('slug_url', `${window.location.origin}/${siteData.slug}`)}
                           className="px-4 py-3 rounded-xl bg-gray-900 dark:bg-zinc-800 text-white text-xs font-bold flex items-center gap-1.5 hover:bg-[#D05634] transition-colors shrink-0"
                         >
                           {copiedDnsField === 'slug_url' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
@@ -8743,7 +8743,7 @@ export function SiteBuilderView({
                         </button>
                       </div>
                       <p className="text-[10px] text-gray-400 font-mono truncate">
-                        {window.location.origin}/?site={siteData.slug}
+                        {window.location.origin}/{siteData.slug}
                       </p>
                     </div>
 

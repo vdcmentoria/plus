@@ -424,15 +424,7 @@ export function PublicWebsiteView({
           setSite(data);
           if (data.niche) setFormEventType(data.niche);
         } else {
-          const resAll = await fetch('/api/sites');
-          if (resAll.ok) {
-            const all = await resAll.json();
-            if (all.length > 0) {
-              const activeCandidate = all.find((s: any) => s.published !== false) || all[0];
-              setSite(activeCandidate);
-              if (activeCandidate.niche) setFormEventType(activeCandidate.niche);
-            }
-          }
+          setSite(null);
         }
       } catch (err) {
         console.error('Error loading site:', err);
@@ -579,7 +571,7 @@ export function PublicWebsiteView({
           <Globe className="w-16 h-16 text-zinc-600 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Website não encontrado</h1>
           <p className="text-zinc-400 text-sm max-w-md mx-auto mb-6">O site informado não existe ou o domínio ainda não foi configurado.</p>
-          <button onClick={() => window.location.href = '/?app=1'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest hover:bg-[#b84a2b] transition-colors cursor-pointer">
+          <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest hover:bg-[#b84a2b] transition-colors cursor-pointer">
             Voltar para o Frame+
           </button>
         </div>
@@ -597,7 +589,7 @@ export function PublicWebsiteView({
           </div>
           <h1 className="text-2xl font-bold mb-2">Site Temporariamente em Rascunho</h1>
           <p className="text-zinc-400 text-sm max-w-md mx-auto mb-6">O fotógrafo definiu este site como rascunho para manutenção ou atualizações. Ele estará de volta em breve!</p>
-          <button onClick={() => window.location.href = '/?app=1'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest hover:bg-[#b84a2b] transition-colors cursor-pointer">
+          <button onClick={() => window.location.href = '/'} className="px-6 py-3 bg-[#D05634] text-white font-bold rounded-full text-xs uppercase tracking-widest hover:bg-[#b84a2b] transition-colors cursor-pointer">
             Acessar Plataforma Frame+
           </button>
         </div>

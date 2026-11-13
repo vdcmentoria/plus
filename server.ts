@@ -1964,14 +1964,6 @@ return exportServiceProvider`;
         return res.json(found);
       }
 
-      // If on site.framepro.click or if lookup is for the sole published site, return it
-      if (sites.length > 0) {
-        if (normalizedQueryDomain === 'site.framepro.click' || targetNorm === 'mariaisabelsocial' || !lookupSlug) {
-          const publishedCandidate = sites.find((s: any) => s.published !== false) || sites[0];
-          return res.json(publishedCandidate);
-        }
-      }
-
       return res.status(404).json({ error: 'Site não encontrado.' });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
