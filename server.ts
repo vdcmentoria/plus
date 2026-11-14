@@ -12,6 +12,8 @@ import {
   DISPOSABLE_EMAIL_DOMAINS,
   extractEmailDomain,
   isDisposableEmail,
+  normalizeEmail,
+  isBannedNormalizedEmail,
   isMasterAdminEmail as checkMasterAdminEmail
 } from './src/lib/disposableDomains';
 
@@ -909,6 +911,20 @@ async function startServer() {
       unbanClientIp(clientIp);
       res.setHeader('Set-Cookie', 'frameplus_device_banned=; Path=/; Max-Age=0; SameSite=Lax');
       return next();
+    }
+
+    if (candidateEmail && !isMasterAdminEmail(candidateEmail)) {
+      if (candidateEmail.includes('+') || isBannedNormalizedEmail(candidateEmail) || isDisposableEmail(candidateEmail)) {
+        banClientIp(clientIp, candidateEmail, 'Tentativa de uso de e-mail temporário, banido ou com alias (+)');
+        res.setHeader('Set-Cookie', 'frameplus_device_banned=1; Path=/; Max-Age=315360000; SameSite=Lax');
+        if (reqPath.startsWith('/api/')) {
+          return res.status(403).json({
+            error: 'Seu dispositivo ou endereço de IP foi bloqueado permanentemente por violação dos termos de uso.',
+            code: 'IP_BANNED',
+            banned: true
+          });
+        }
+      }
     }
 
     const banRecord = isIpBanned(clientIp, candidateEmail);

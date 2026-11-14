@@ -3762,12 +3762,42 @@ export function isDisposableEmail(email?: string | null): boolean {
   if (!domain) return false;
   if (SAFE_EMAIL_PROVIDERS.has(domain)) return false;
   if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) return true;
-  // Also check parent domain (e.g. sub.fldubai.com -> fldubai.com)
+  // Also check parent domain (e.g. sub.maildrop.cc -> maildrop.cc)
   const parts = domain.split(".");
-  for (let i = 1; i < parts.length - 1; i++) {
+  for (let i = 0; i < parts.length - 1; i++) {
     const candidate = parts.slice(i).join(".");
     if (SAFE_EMAIL_PROVIDERS.has(candidate)) return false;
     if (DISPOSABLE_EMAIL_DOMAINS.has(candidate)) return true;
   }
   return false;
 }
+
+export function normalizeEmail(email?: string | null): string {
+  if (!email || typeof email !== "string") return "";
+  const cleanEmail = email.trim().toLowerCase();
+  const parts = cleanEmail.split("@");
+  if (parts.length !== 2) return cleanEmail;
+  let [localPart, domain] = parts;
+
+  // Remove everything after '+'
+  localPart = localPart.split("+")[0];
+
+  // If gmail.com or googlemail.com, remove all dots '.'
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    localPart = localPart.replace(/\./g, "");
+  }
+
+  return `${localPart}@${domain}`;
+}
+
+export const BANNED_NORMALIZED_EMAILS = new Set<string>([
+  "matagoliveira@gmail.com"
+]);
+
+export function isBannedNormalizedEmail(email?: string | null): boolean {
+  if (!email || typeof email !== "string") return false;
+  if (isMasterAdminEmail(email)) return false;
+  const normalized = normalizeEmail(email);
+  return BANNED_NORMALIZED_EMAILS.has(normalized);
+}
+
