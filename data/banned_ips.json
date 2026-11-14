@@ -1,0 +1,8 @@
+{
+  "bannedIps": {},
+  "bannedDevices": {},
+  "deviceAccounts": {},
+  "customBlockedDomains": [
+    "fldubai.com"
+  ]
+}

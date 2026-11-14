@@ -8,6 +8,25 @@ import crypto from 'crypto';
 import fs from 'fs';
 import JSZip from 'jszip';
 import { GoogleGenAI } from '@google/genai';
+import { isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS } from './src/lib/disposableDomains';
+
+interface BanRecord {
+  target: string;
+  type: 'ip' | 'device';
+  email?: string;
+  uid?: string;
+  reason: string;
+  bannedAt: string;
+  relatedIp?: string;
+  relatedDevice?: string;
+}
+
+interface SecurityStoreData {
+  bannedIps: Record<string, BanRecord>;
+  bannedDevices: Record<string, BanRecord>;
+  deviceAccounts: Record<string, string[]>;
+  customBlockedDomains: string[];
+}
 
 async function startServer() {
   const app = express();
@@ -21,7 +40,7 @@ async function startServer() {
     const origin = req.headers.origin || '*';
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Device-Fingerprint');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(204);
@@ -41,6 +60,7 @@ async function startServer() {
   const sitesFile = path.join(dataDir, 'sites.json');
   const blogsFile = path.join(dataDir, 'blogs.json');
   const leadsFile = path.join(dataDir, 'leads.json');
+  const bannedIpsFile = path.join(dataDir, 'banned_ips.json');
 
   // Seeds (new accounts start with 0 galleries)
   const initialCollections: any[] = [];
@@ -70,6 +90,235 @@ async function startServer() {
   if (!fs.existsSync(leadsFile)) {
     fs.writeFileSync(leadsFile, JSON.stringify([], null, 2), 'utf8');
   }
+  if (!fs.existsSync(bannedIpsFile)) {
+    const initialSecurity: SecurityStoreData = {
+      bannedIps: {},
+      bannedDevices: {},
+      deviceAccounts: {},
+      customBlockedDomains: ['fldubai.com']
+    };
+    fs.writeFileSync(bannedIpsFile, JSON.stringify(initialSecurity, null, 2), 'utf8');
+  }
+
+  function readSecurityStore(): SecurityStoreData {
+    try {
+      if (fs.existsSync(bannedIpsFile)) {
+        const parsed = JSON.parse(fs.readFileSync(bannedIpsFile, 'utf8'));
+        return {
+          bannedIps: parsed.bannedIps || {},
+          bannedDevices: parsed.bannedDevices || {},
+          deviceAccounts: parsed.deviceAccounts || {},
+          customBlockedDomains: Array.isArray(parsed.customBlockedDomains)
+            ? parsed.customBlockedDomains
+            : ['fldubai.com']
+        };
+      }
+    } catch (e) {
+      console.error('Error reading banned_ips.json:', e);
+    }
+    return {
+      bannedIps: {},
+      bannedDevices: {},
+      deviceAccounts: {},
+      customBlockedDomains: ['fldubai.com']
+    };
+  }
+
+  function writeSecurityStore(store: SecurityStoreData) {
+    try {
+      fs.mkdirSync(path.dirname(bannedIpsFile), { recursive: true });
+      fs.writeFileSync(bannedIpsFile, JSON.stringify(store, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Error writing banned_ips.json:', e);
+    }
+  }
+
+  function extractClientIp(req: express.Request): string {
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (typeof cfIp === 'string' && cfIp.trim()) return cfIp.trim().replace(/^::ffff:/, '');
+    const realIp = req.headers['x-real-ip'];
+    if (typeof realIp === 'string' && realIp.trim()) return realIp.trim().replace(/^::ffff:/, '');
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+      const first = forwardedFor.split(',')[0].trim();
+      if (first) return first.replace(/^::ffff:/, '');
+    }
+    const rawIp = (req.ip || req.socket?.remoteAddress || '').trim();
+    return rawIp.replace(/^::ffff:/, '') || '0.0.0.0';
+  }
+
+  function extractVisitorId(req: express.Request): string {
+    const headerFp = req.headers['x-device-fingerprint'];
+    if (typeof headerFp === 'string' && headerFp.trim()) return headerFp.trim();
+    const rawCookie = req.headers.cookie;
+    if (typeof rawCookie === 'string' && rawCookie.includes('fp_device_id=')) {
+      const match = rawCookie.match(/(?:^|;\s*)fp_device_id=([^;]+)/);
+      if (match && match[1]) {
+        try {
+          return decodeURIComponent(match[1].trim());
+        } catch {
+          return match[1].trim();
+        }
+      }
+    }
+    if (req.body && typeof req.body.visitorId === 'string' && req.body.visitorId.trim()) {
+      return req.body.visitorId.trim();
+    }
+    if (req.query && typeof req.query.visitorId === 'string' && req.query.visitorId.trim()) {
+      return (req.query.visitorId as string).trim();
+    }
+    return '';
+  }
+
+  // In-memory login rate limiter (per IP)
+  const loginAttemptsMap = new Map<string, { count: number; firstAttemptAt: number; lockedUntil: number }>();
+  const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+  const MAX_LOGIN_ATTEMPTS = 5;
+  const AUTO_BAN_LOGIN_ATTEMPTS = 15;
+
+  function recordFailedLoginAttempt(ip: string): { rateLimited: boolean; autoBanned: boolean; retryAfterSeconds: number; attempts: number } {
+    const now = Date.now();
+    const existing = loginAttemptsMap.get(ip);
+    if (!existing || now - existing.firstAttemptAt > LOGIN_WINDOW_MS) {
+      loginAttemptsMap.set(ip, { count: 1, firstAttemptAt: now, lockedUntil: 0 });
+      return { rateLimited: false, autoBanned: false, retryAfterSeconds: 0, attempts: 1 };
+    }
+    existing.count += 1;
+    if (existing.count >= AUTO_BAN_LOGIN_ATTEMPTS) {
+      return { rateLimited: true, autoBanned: true, retryAfterSeconds: 900, attempts: existing.count };
+    }
+    if (existing.count >= MAX_LOGIN_ATTEMPTS) {
+      existing.lockedUntil = now + LOGIN_WINDOW_MS;
+      const retryAfterSeconds = Math.ceil((existing.lockedUntil - now) / 1000);
+      return { rateLimited: true, autoBanned: false, retryAfterSeconds, attempts: existing.count };
+    }
+    return { rateLimited: false, autoBanned: false, retryAfterSeconds: 0, attempts: existing.count };
+  }
+
+  function checkLoginRateLimit(ip: string): { rateLimited: boolean; retryAfterSeconds: number } {
+    const now = Date.now();
+    const existing = loginAttemptsMap.get(ip);
+    if (!existing) return { rateLimited: false, retryAfterSeconds: 0 };
+    if (existing.lockedUntil > now) {
+      return { rateLimited: true, retryAfterSeconds: Math.ceil((existing.lockedUntil - now) / 1000) };
+    }
+    if (now - existing.firstAttemptAt > LOGIN_WINDOW_MS) {
+      loginAttemptsMap.delete(ip);
+    }
+    return { rateLimited: false, retryAfterSeconds: 0 };
+  }
+
+  function clearLoginRateLimit(ip: string) {
+    loginAttemptsMap.delete(ip);
+  }
+
+  function banIpAndDeviceNow(params: {
+    ip?: string;
+    visitorId?: string;
+    email?: string;
+    uid?: string;
+    reason: string;
+  }) {
+    const store = readSecurityStore();
+    const bannedAt = new Date().toISOString();
+    const cleanIp = (params.ip || '').trim();
+    const cleanVid = (params.visitorId || '').trim();
+
+    if (cleanIp && cleanIp !== '0.0.0.0') {
+      store.bannedIps[cleanIp] = {
+        target: cleanIp,
+        type: 'ip',
+        email: params.email || store.bannedIps[cleanIp]?.email || '',
+        uid: params.uid || store.bannedIps[cleanIp]?.uid || '',
+        reason: params.reason,
+        bannedAt,
+        relatedDevice: cleanVid || store.bannedIps[cleanIp]?.relatedDevice || ''
+      };
+    }
+
+    if (cleanVid && cleanVid !== 'srv-node') {
+      store.bannedDevices[cleanVid] = {
+        target: cleanVid,
+        type: 'device',
+        email: params.email || store.bannedDevices[cleanVid]?.email || '',
+        uid: params.uid || store.bannedDevices[cleanVid]?.uid || '',
+        reason: params.reason,
+        bannedAt,
+        relatedIp: cleanIp || store.bannedDevices[cleanVid]?.relatedIp || ''
+      };
+    }
+
+    writeSecurityStore(store);
+    console.warn(`[SECURITY BAN] IP=${cleanIp || 'N/A'} Device=${cleanVid || 'N/A'} Email=${params.email || 'N/A'} Motivo=${params.reason}`);
+  }
+
+  // Global IP & Device Lockout Middleware
+  app.use((req, res, next) => {
+    // Always allow admin security routes so the admin can manage/unban IPs even from same network
+    if (req.path.startsWith('/api/admin/security') || req.path === '/api/health') {
+      return next();
+    }
+
+    const clientIp = extractClientIp(req);
+    const visitorId = extractVisitorId(req);
+    const store = readSecurityStore();
+
+    const ipBan = clientIp ? store.bannedIps[clientIp] : undefined;
+    const deviceBan = visitorId ? store.bannedDevices[visitorId] : undefined;
+
+    if (ipBan || deviceBan) {
+      // Cross-link device & IP if one is banned and the other was just seen
+      let storeChanged = false;
+      if (ipBan && visitorId && visitorId !== 'srv-node' && !store.bannedDevices[visitorId]) {
+        store.bannedDevices[visitorId] = {
+          target: visitorId,
+          type: 'device',
+          email: ipBan.email || '',
+          uid: ipBan.uid || '',
+          reason: `${ipBan.reason} (Dispositivo vinculado ao IP banido ${clientIp})`,
+          bannedAt: new Date().toISOString(),
+          relatedIp: clientIp
+        };
+        storeChanged = true;
+      }
+      if (deviceBan && clientIp && clientIp !== '0.0.0.0' && !store.bannedIps[clientIp]) {
+        store.bannedIps[clientIp] = {
+          target: clientIp,
+          type: 'ip',
+          email: deviceBan.email || '',
+          uid: deviceBan.uid || '',
+          reason: `${deviceBan.reason} (IP vinculado ao dispositivo banido ${visitorId})`,
+          bannedAt: new Date().toISOString(),
+          relatedDevice: visitorId
+        };
+        storeChanged = true;
+      }
+      if (storeChanged) {
+        writeSecurityStore(store);
+      }
+
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+
+      if (req.path.startsWith('/api/')) {
+        return res.status(403).json({
+          error: 'Acesso bloqueado permanentemente.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
+      // For HTML / browser navigation requests, return completely empty page so the site never renders
+      return res
+        .status(403)
+        .setHeader('Content-Type', 'text/html; charset=utf-8')
+        .send('<!DOCTYPE html><html><head><meta charset="utf-8"><title></title></head><body style="margin:0;background:#ffffff;"></body></html>');
+    }
+
+    next();
+  });
+
 
   // Helper to read/write JSON db beautifully
   function readSites() {
@@ -693,11 +942,64 @@ async function startServer() {
     return clean === 'felipemachadophotography@gmail.com' || clean === 'isabelefelipefotografias@gmail.com';
   }
 
+  function checkAndEnforceDisposableEmailBan(
+    email: string | undefined,
+    req: express.Request,
+    contextLabel: string
+  ): { banned: boolean; matchedDomain: string } {
+    if (!email || isMasterAdminEmail(email)) {
+      return { banned: false, matchedDomain: '' };
+    }
+    const store = readSecurityStore();
+    const check = isDisposableEmailDomain(email, store.customBlockedDomains);
+    if (!check.blocked) {
+      return { banned: false, matchedDomain: '' };
+    }
+
+    const clientIp = extractClientIp(req);
+    const visitorId = extractVisitorId(req);
+    const reason = `Uso de e-mail temporário/bloqueado (${check.matchedDomain}) em ${contextLabel}`;
+
+    banIpAndDeviceNow({
+      ip: clientIp,
+      visitorId,
+      email: email.trim().toLowerCase(),
+      reason
+    });
+
+    // Also mark any matching user in users.json as Banido
+    try {
+      const users = readUsers();
+      const found = findExistingUser(users, undefined, email);
+      if (found) {
+        users[found.key] = {
+          ...found.record,
+          status: 'Banido',
+          lastIp: clientIp || found.record.lastIp || '',
+          visitorId: visitorId || found.record.visitorId || '',
+          banReason: reason,
+          bannedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        writeUsers(users);
+      }
+    } catch {}
+
+    return { banned: true, matchedDomain: check.matchedDomain };
+  }
+
   app.get('/api/users', (req, res) => {
     try {
       const usersMap = readUsers();
+      const store = readSecurityStore();
       const userList = Object.values(usersMap).map((u: any) => {
         const isAdmin = u.role === 'admin' || u.isAdmin === true || isMasterAdminEmail(u.email);
+        const lastIp = u.lastIp || '';
+        const visitorId = u.visitorId || '';
+        const isIpBanned =
+          Boolean(lastIp && store.bannedIps[lastIp]) ||
+          Boolean(visitorId && store.bannedDevices[visitorId]) ||
+          u.status === 'Banido';
         return {
           ...u,
           role: isAdmin ? 'admin' : (u.role || 'user'),
@@ -706,7 +1008,10 @@ async function startServer() {
           expiresAt: u.expiresAt || null,
           storageLimitGB: u.storageLimitGB || u.storageGB || 30,
           planName: u.planName || 'Luz (30 GB)',
-          status: u.status || 'Ativo'
+          status: isIpBanned && !isAdmin ? 'Banido' : (u.status || 'Ativo'),
+          lastIp,
+          visitorId,
+          isIpBanned: isIpBanned && !isAdmin
         };
       });
       return res.json(userList);
@@ -746,14 +1051,17 @@ async function startServer() {
     return null;
   }
 
-  function syncOrEnsureFrameProUser(crmUser: {
-    id?: string;
-    email?: string;
-    name?: string;
-    plan?: string;
-    role?: string;
-    avatar_url?: string;
-  }) {
+  function syncOrEnsureFrameProUser(
+    crmUser: {
+      id?: string;
+      email?: string;
+      name?: string;
+      plan?: string;
+      role?: string;
+      avatar_url?: string;
+    },
+    reqMeta?: { lastIp?: string; visitorId?: string }
+  ) {
     const users = readUsers();
     const settings = readSettings();
     const found = findExistingUser(users, crmUser.id, crmUser.email);
@@ -796,7 +1104,9 @@ async function startServer() {
       createdAt,
       updatedAt: new Date().toISOString(),
       status: existing.status || "Ativo",
-      authSource: 'framepro_sso'
+      authSource: 'framepro_sso',
+      lastIp: reqMeta?.lastIp || existing.lastIp || '',
+      visitorId: reqMeta?.visitorId || existing.visitorId || ''
     };
 
     users[uid] = updatedUser;
@@ -952,6 +1262,14 @@ async function startServer() {
       let existing = found ? found.record : null;
 
       if (existing) {
+        if (existing.status === 'Banido' && !isMasterAdminEmail(existing.email)) {
+          return res.status(403).json({
+            error: 'Sua conta e endereço IP foram banidos.',
+            code: 'IP_BANNED',
+            banned: true
+          });
+        }
+
         // Clean legacy random placeholder if it was stored previously
         const cleanedPhoto = sanitizeAvatarUrl(existing.photoURL);
         let changed = cleanedPhoto !== (existing.photoURL || '');
@@ -1011,7 +1329,7 @@ async function startServer() {
   app.post('/api/users/:uid', (req, res) => {
     try {
       const reqUid = req.params.uid;
-      const data = req.body;
+      const data = req.body || {};
       const users = readUsers();
       const found = findExistingUser(users, reqUid, data.email);
       const uid = found ? found.key : reqUid;
@@ -1020,6 +1338,17 @@ async function startServer() {
       const settings = readSettings();
 
       const mergedEmail = data.email || existing.email || '';
+
+      // Enforce disposable email ban
+      const dispCheck = checkAndEnforceDisposableEmailBan(mergedEmail, req, 'Perfil de Usuário');
+      if (dispCheck.banned) {
+        return res.status(403).json({
+          error: `Domínio de e-mail proibido (${dispCheck.matchedDomain}). Seu IP e dispositivo foram banidos permanentemente.`,
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
       const isMasterAdmin = isMasterAdminEmail(mergedEmail);
       const role = isMasterAdmin ? 'admin' : (data.role || existing.role || 'user');
       const isAdmin = role === 'admin' || data.isAdmin === true || isMasterAdmin;
@@ -1036,8 +1365,13 @@ async function startServer() {
       }
 
       const incomingPhoto = data.photoURL !== undefined ? sanitizeAvatarUrl(data.photoURL) : sanitizeAvatarUrl(existing.photoURL);
-
       const expiresAt = data.expiresAt !== undefined ? data.expiresAt : (existing.expiresAt || null);
+      const nextStatus = data.status || existing.status || "Ativo";
+      const clientIp = extractClientIp(req);
+      const visitorId = extractVisitorId(req);
+
+      const userLastIp = data.lastIp || existing.lastIp || (!data.adminAction ? clientIp : '');
+      const userVisitorId = data.visitorId || existing.visitorId || (!data.adminAction ? visitorId : '');
 
       users[uid] = {
         ...existing,
@@ -1052,9 +1386,37 @@ async function startServer() {
         storageLimitGB: Number(storageLimitGB || 3),
         createdAt,
         updatedAt: new Date().toISOString(),
-        status: data.status || existing.status || "Ativo"
+        status: nextStatus,
+        lastIp: userLastIp,
+        visitorId: userVisitorId
       };
       writeUsers(users);
+
+      // If admin changed status to Banido or Ativo, sync with IP/Device ban store
+      if (!isMasterAdmin && data.status === 'Banido' && existing.status !== 'Banido') {
+        if (userLastIp || userVisitorId) {
+          banIpAndDeviceNow({
+            ip: userLastIp,
+            visitorId: userVisitorId,
+            email: mergedEmail,
+            uid,
+            reason: data.banReason || 'Banido manualmente pelo Administrador'
+          });
+        }
+      } else if (data.status === 'Ativo' && existing.status === 'Banido') {
+        const store = readSecurityStore();
+        let changed = false;
+        if (userLastIp && store.bannedIps[userLastIp]) {
+          delete store.bannedIps[userLastIp];
+          changed = true;
+        }
+        if (userVisitorId && store.bannedDevices[userVisitorId]) {
+          delete store.bannedDevices[userVisitorId];
+          changed = true;
+        }
+        if (changed) writeSecurityStore(store);
+      }
+
       return res.json(users[uid]);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -1256,11 +1618,24 @@ async function startServer() {
         });
       }
 
+      const ssoDispCheck = checkAndEnforceDisposableEmailBan(verifiedCrmUser.email, req, 'Login SSO');
+      if (ssoDispCheck.banned) {
+        return res.status(403).json({
+          valid: false,
+          error: `Domínio de e-mail proibido (${ssoDispCheck.matchedDomain}). Seu IP e dispositivo foram banidos permanentemente.`,
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
       // Always enrich verifiedCrmUser with full CRM profile (pulls exact avatar_url from CRM)
       verifiedCrmUser = await enrichCrmUserProfile(verifiedCrmUser, finalAccessToken, candidateOrigins);
 
       // Ensure or update the photographer account in FramePlus database
-      const framePlusUser = syncOrEnsureFrameProUser(verifiedCrmUser);
+      const framePlusUser = syncOrEnsureFrameProUser(verifiedCrmUser, {
+        lastIp: extractClientIp(req),
+        visitorId: extractVisitorId(req)
+      });
 
       // Clear consumed bridge cookie
       res.setHeader('Set-Cookie', [
@@ -1293,6 +1668,50 @@ async function startServer() {
       }
 
       const cleanEmail = email.trim().toLowerCase();
+      const clientIp = extractClientIp(req);
+      const visitorId = extractVisitorId(req);
+
+      // 1. Check disposable email domain -> instant IP & Device ban
+      const dispCheck = checkAndEnforceDisposableEmailBan(cleanEmail, req, 'Login');
+      if (dispCheck.banned) {
+        return res.status(403).json({
+          error: `Domínio de e-mail proibido (${dispCheck.matchedDomain}). Seu IP e dispositivo foram banidos permanentemente.`,
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
+      // 2. Check if existing user is marked Banido
+      const existingUsers = readUsers();
+      const existingFound = findExistingUser(existingUsers, undefined, cleanEmail);
+      if (existingFound && existingFound.record.status === 'Banido' && !isMasterAdminEmail(cleanEmail)) {
+        banIpAndDeviceNow({
+          ip: clientIp,
+          visitorId,
+          email: cleanEmail,
+          uid: existingFound.key,
+          reason: 'Tentativa de login em conta banida'
+        });
+        return res.status(403).json({
+          error: 'Sua conta e endereço IP foram banidos permanentemente.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
+      // 3. Check Login Rate Limit per IP
+      if (!isMasterAdminEmail(cleanEmail)) {
+        const rateCheck = checkLoginRateLimit(clientIp);
+        if (rateCheck.rateLimited) {
+          const mins = Math.max(1, Math.ceil(rateCheck.retryAfterSeconds / 60));
+          return res.status(429).json({
+            error: `Muitas tentativas de login falharam. Por segurança, aguarde ${mins} minuto(s) antes de tentar novamente.`,
+            code: 'RATE_LIMITED',
+            retryAfterSeconds: rateCheck.retryAfterSeconds
+          });
+        }
+      }
+
       const loginRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1302,11 +1721,39 @@ async function startServer() {
       const data: any = await loginRes.json().catch(() => ({}));
 
       if (!loginRes.ok || (!data.session && !data.user)) {
+        if (!isMasterAdminEmail(cleanEmail)) {
+          const failState = recordFailedLoginAttempt(clientIp);
+          if (failState.autoBanned) {
+            banIpAndDeviceNow({
+              ip: clientIp,
+              visitorId,
+              email: cleanEmail,
+              reason: `Bloqueio automático por força bruta no login (${failState.attempts} tentativas falhas)`
+            });
+            return res.status(403).json({
+              error: 'Seu IP foi banido por excesso de tentativas inválidas (força bruta).',
+              code: 'IP_BANNED',
+              banned: true
+            });
+          }
+          if (failState.rateLimited) {
+            const mins = Math.max(1, Math.ceil(failState.retryAfterSeconds / 60));
+            return res.status(429).json({
+              error: `Muitas tentativas de login falharam (${failState.attempts}/${MAX_LOGIN_ATTEMPTS}). Aguarde ${mins} minuto(s).`,
+              code: 'RATE_LIMITED',
+              retryAfterSeconds: failState.retryAfterSeconds
+            });
+          }
+        }
+
         const errMsg = typeof data.error === 'string' && data.error.trim()
           ? data.error
           : data.error?.message || 'Usuário não encontrado ou senha incorreta.';
         return res.status(loginRes.status || 401).json({ error: errMsg });
       }
+
+      // Successful login -> clear failed attempts
+      clearLoginRateLimit(clientIp);
 
       const rawUser = data.user || data.session?.user || {};
       const rawProfile = data.profile || {};
@@ -1322,7 +1769,10 @@ async function startServer() {
 
       crmUser = await enrichCrmUserProfile(crmUser, data.session?.access_token, [CRM_DEFAULT_ORIGIN]);
 
-      const framePlusUser = syncOrEnsureFrameProUser(crmUser);
+      const framePlusUser = syncOrEnsureFrameProUser(crmUser, {
+        lastIp: clientIp,
+        visitorId
+      });
 
       return res.json({
         success: true,
@@ -1346,6 +1796,37 @@ async function startServer() {
 
       const cleanEmail = email.trim().toLowerCase();
       const fullName = (name || cleanEmail.split('@')[0]).trim();
+      const clientIp = extractClientIp(req);
+      const visitorId = extractVisitorId(req);
+
+      // 1. Instant IP & Device Ban if disposable or blocked email domain is used!
+      const dispCheck = checkAndEnforceDisposableEmailBan(cleanEmail, req, 'Criação de Conta');
+      if (dispCheck.banned) {
+        return res.status(403).json({
+          error: `Domínio de e-mail temporário/proibido detectado (${dispCheck.matchedDomain}). Seu IP e dispositivo foram banidos permanentemente.`,
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
+      // 2. Check Device Fingerprint Multi-Account Limit (max 2 accounts per device)
+      if (visitorId && visitorId !== 'srv-node' && !isMasterAdminEmail(cleanEmail)) {
+        const store = readSecurityStore();
+        const existingDeviceEmails = store.deviceAccounts[visitorId] || [];
+        if (!existingDeviceEmails.includes(cleanEmail) && existingDeviceEmails.length >= 2) {
+          banIpAndDeviceNow({
+            ip: clientIp,
+            visitorId,
+            email: cleanEmail,
+            reason: `Abuso de múltiplas contas no mesmo dispositivo (${existingDeviceEmails.length + 1} contas tentadas)`
+          });
+          return res.status(403).json({
+            error: 'Limite de contas gratuitas por dispositivo excedido. Seu IP e dispositivo foram bloqueados.',
+            code: 'IP_BANNED',
+            banned: true
+          });
+        }
+      }
 
       const regRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/register`, {
         method: 'POST',
@@ -1363,6 +1844,17 @@ async function startServer() {
         return res.status(regRes.status || 400).json({
           error: data.error || 'Erro ao realizar cadastro no FramePro.'
         });
+      }
+
+      // Record account against device fingerprint
+      if (visitorId && visitorId !== 'srv-node') {
+        const store = readSecurityStore();
+        const list = store.deviceAccounts[visitorId] || [];
+        if (!list.includes(cleanEmail)) {
+          list.push(cleanEmail);
+          store.deviceAccounts[visitorId] = list;
+          writeSecurityStore(store);
+        }
       }
 
       // If CRM returned session or user directly, sync immediately; otherwise try logging in
@@ -1393,7 +1885,10 @@ async function startServer() {
         avatar_url: ''
       };
 
-      const framePlusUser = syncOrEnsureFrameProUser(crmUser);
+      const framePlusUser = syncOrEnsureFrameProUser(crmUser, {
+        lastIp: clientIp,
+        visitorId
+      });
 
       return res.json({
         success: true,
@@ -1415,6 +1910,14 @@ async function startServer() {
         return res.status(400).json({ error: 'Informe seu e-mail.' });
       }
       const cleanEmail = email.trim().toLowerCase();
+      const dispCheck = checkAndEnforceDisposableEmailBan(cleanEmail, req, 'Recuperação de Senha');
+      if (dispCheck.banned) {
+        return res.status(403).json({
+          error: `Domínio de e-mail proibido (${dispCheck.matchedDomain}). Seu IP foi banido.`,
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
       const resetRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/request-password-reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1429,6 +1932,208 @@ async function startServer() {
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ error: 'Erro ao solicitar recuperação de senha.' });
+    }
+  });
+
+  // ==========================================================
+  // ADMIN SECURITY, IP BAN & DISPOSABLE EMAIL MANAGEMENT API
+  // ==========================================================
+  app.get('/api/admin/security', (req, res) => {
+    try {
+      const store = readSecurityStore();
+      const bannedIpsList = Object.values(store.bannedIps).sort(
+        (a, b) => new Date(b.bannedAt).getTime() - new Date(a.bannedAt).getTime()
+      );
+      const bannedDevicesList = Object.values(store.bannedDevices).sort(
+        (a, b) => new Date(b.bannedAt).getTime() - new Date(a.bannedAt).getTime()
+      );
+      return res.json({
+        bannedIps: bannedIpsList,
+        bannedDevices: bannedDevicesList,
+        customBlockedDomains: store.customBlockedDomains || [],
+        builtInDomainsCount: DISPOSABLE_EMAIL_DOMAINS.length,
+        deviceAccountsCount: Object.keys(store.deviceAccounts || {}).length
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/ban', (req, res) => {
+    try {
+      const { ip, visitorId, email, uid, reason } = req.body || {};
+      const users = readUsers();
+      let targetIp = (ip || '').trim();
+      let targetVid = (visitorId || '').trim();
+      let targetEmail = (email || '').trim().toLowerCase();
+      let targetUid = (uid || '').trim();
+
+      if (isMasterAdminEmail(targetEmail)) {
+        return res.status(400).json({ error: 'Não é permitido banir o administrador mestre.' });
+      }
+
+      const foundUser = (targetUid || targetEmail) ? findExistingUser(users, targetUid, targetEmail) : null;
+      if (foundUser) {
+        if (isMasterAdminEmail(foundUser.record.email)) {
+          return res.status(400).json({ error: 'Não é permitido banir o administrador mestre.' });
+        }
+        targetUid = foundUser.key;
+        targetEmail = foundUser.record.email || targetEmail;
+        if (!targetIp && foundUser.record.lastIp) targetIp = foundUser.record.lastIp;
+        if (!targetVid && foundUser.record.visitorId) targetVid = foundUser.record.visitorId;
+
+        users[foundUser.key] = {
+          ...foundUser.record,
+          status: 'Banido',
+          banReason: reason || 'Banido pelo Administrador',
+          bannedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        writeUsers(users);
+      }
+
+      if (!targetIp && !targetVid && !foundUser) {
+        return res.status(400).json({ error: 'Informe um IP, Dispositivo (Visitor ID) ou Usuário válido para banir.' });
+      }
+
+      banIpAndDeviceNow({
+        ip: targetIp,
+        visitorId: targetVid,
+        email: targetEmail,
+        uid: targetUid,
+        reason: reason || 'Banido manualmente no Painel Admin'
+      });
+
+      const updatedStore = readSecurityStore();
+      return res.json({
+        success: true,
+        bannedIp: targetIp,
+        bannedDevice: targetVid,
+        bannedIps: Object.values(updatedStore.bannedIps),
+        bannedDevices: Object.values(updatedStore.bannedDevices)
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/unban', (req, res) => {
+    try {
+      const { ip, visitorId, email, uid } = req.body || {};
+      const store = readSecurityStore();
+      const users = readUsers();
+
+      let targetIp = (ip || '').trim();
+      let targetVid = (visitorId || '').trim();
+      const targetEmail = (email || '').trim().toLowerCase();
+      const targetUid = (uid || '').trim();
+
+      const foundUser = (targetUid || targetEmail) ? findExistingUser(users, targetUid, targetEmail) : null;
+      if (foundUser) {
+        if (!targetIp && foundUser.record.lastIp) targetIp = foundUser.record.lastIp;
+        if (!targetVid && foundUser.record.visitorId) targetVid = foundUser.record.visitorId;
+        users[foundUser.key] = {
+          ...foundUser.record,
+          status: 'Ativo',
+          banReason: '',
+          updatedAt: new Date().toISOString()
+        };
+        writeUsers(users);
+      }
+
+      // Remove direct IP / Device bans and any cross-linked bans matching email or uid
+      if (targetIp && store.bannedIps[targetIp]) {
+        const linkedDev = store.bannedIps[targetIp].relatedDevice;
+        delete store.bannedIps[targetIp];
+        clearLoginRateLimit(targetIp);
+        if (linkedDev && store.bannedDevices[linkedDev]) {
+          delete store.bannedDevices[linkedDev];
+        }
+      }
+      if (targetVid && store.bannedDevices[targetVid]) {
+        const linkedIp = store.bannedDevices[targetVid].relatedIp;
+        delete store.bannedDevices[targetVid];
+        if (linkedIp && store.bannedIps[linkedIp]) {
+          delete store.bannedIps[linkedIp];
+          clearLoginRateLimit(linkedIp);
+        }
+      }
+
+      // Also clean any ban records matching the unbanned user's email or uid
+      if (targetEmail || targetUid) {
+        for (const [k, rec] of Object.entries(store.bannedIps)) {
+          if ((targetEmail && rec.email?.toLowerCase() === targetEmail) || (targetUid && rec.uid === targetUid)) {
+            delete store.bannedIps[k];
+            clearLoginRateLimit(k);
+          }
+        }
+        for (const [k, rec] of Object.entries(store.bannedDevices)) {
+          if ((targetEmail && rec.email?.toLowerCase() === targetEmail) || (targetUid && rec.uid === targetUid)) {
+            delete store.bannedDevices[k];
+          }
+        }
+      }
+
+      // If unbanning by IP/visitorId directly, also restore any user in users.json that had that IP/visitorId
+      if (targetIp || targetVid) {
+        let usersChanged = false;
+        for (const [k, u] of Object.entries(users) as [string, any][]) {
+          if (!u) continue;
+          if ((targetIp && u.lastIp === targetIp) || (targetVid && u.visitorId === targetVid)) {
+            if (u.status === 'Banido') {
+              users[k] = { ...u, status: 'Ativo', banReason: '', updatedAt: new Date().toISOString() };
+              usersChanged = true;
+            }
+          }
+        }
+        if (usersChanged) writeUsers(users);
+      }
+
+      writeSecurityStore(store);
+
+      return res.json({
+        success: true,
+        bannedIps: Object.values(store.bannedIps),
+        bannedDevices: Object.values(store.bannedDevices)
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/domains', (req, res) => {
+    try {
+      const { action, domain } = req.body || {};
+      const cleanDomain = (domain || '').trim().toLowerCase().replace(/^@/, '').replace(/^www\./, '');
+      if (!cleanDomain || !cleanDomain.includes('.')) {
+        return res.status(400).json({ error: 'Informe um domínio válido (ex: fldubai.com).' });
+      }
+      const store = readSecurityStore();
+      const set = new Set(store.customBlockedDomains || []);
+      if (action === 'remove') {
+        set.delete(cleanDomain);
+      } else {
+        set.add(cleanDomain);
+      }
+      store.customBlockedDomains = Array.from(set).sort();
+      writeSecurityStore(store);
+      return res.json({
+        success: true,
+        customBlockedDomains: store.customBlockedDomains
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/security/check-email', (req, res) => {
+    try {
+      const { email } = req.body || {};
+      const store = readSecurityStore();
+      const result = isDisposableEmailDomain(email || '', store.customBlockedDomains);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 
@@ -2686,20 +3391,41 @@ return exportServiceProvider`;
         name: leadData.name || leadData.coupleName || 'Cliente Sem Nome',
         email: leadData.email || '',
         phone: leadData.phone || leadData.whatsapp || '',
-        eventType: leadData.eventType || 'Casamento',
-        eventDate: leadData.eventDate || (leadData.dateUndefined ? 'Ainda não definimos a data' : ''),
+        cpfCnpj: leadData.cpfCnpj || '',
+        address: leadData.address || null,
+        eventType: leadData.eventType || leadData.packageName || 'Casamento',
+        eventDate: leadData.eventDate || leadData.bookingDate || (leadData.dateUndefined ? 'Ainda não definimos a data' : ''),
+        bookingDate: leadData.bookingDate || '',
+        bookingTime: leadData.bookingTime || '',
+        durationMinutes: leadData.durationMinutes || 30,
         dateUndefined: Boolean(leadData.dateUndefined),
-        location: leadData.location || leadData.city || '',
-        budget: leadData.budget || leadData.investment || '',
+        location: leadData.location || leadData.city || (leadData.address?.city ? `${leadData.address.city}/${leadData.address.state || ''}` : ''),
+        budget: leadData.budget || leadData.investment || (leadData.amountTotal ? `R$ ${Number(leadData.amountTotal).toFixed(2).replace('.', ',')}` : ''),
         servicesWanted: Array.isArray(leadData.servicesWanted) ? leadData.servicesWanted : [],
         addons: Array.isArray(leadData.addons) ? leadData.addons : [],
+        selectedAddons: Array.isArray(leadData.selectedAddons) ? leadData.selectedAddons : [],
+        participants: leadData.participants || null,
+        isBookingCheckout: Boolean(leadData.isBookingCheckout),
+        packageId: leadData.packageId || '',
+        packageName: leadData.packageName || '',
+        paymentMode: leadData.paymentMode || '',
+        paymentProvider: leadData.paymentProvider || '',
+        installments: leadData.installments || 1,
+        amountTotal: Number(leadData.amountTotal || 0),
+        amountDueNow: Number(leadData.amountDueNow || 0),
+        amountRemainingOnDay: Number(leadData.amountRemainingOnDay || 0),
+        bookingStatus: leadData.bookingStatus || (leadData.isBookingCheckout ? 'aguardando_comprovante' : 'lead_orcamento'),
+        paymentStatus: leadData.paymentStatus || (leadData.isBookingCheckout ? 'pendente' : 'nao_aplicavel'),
+        receiptUrl: leadData.receiptUrl || '',
+        receiptNotes: leadData.receiptNotes || '',
         customFields: leadData.customFields || {},
         message: leadData.message || '',
         crmPipelineId: leadData.crmPipelineId || quoteCfg.crmPipelineId || 'pipe_casamentos',
         crmPipelineName: leadData.crmPipelineName || quoteCfg.crmPipelineName || 'Funil Principal · Casamentos & Eventos',
         crmColumnId: leadData.crmColumnId || quoteCfg.crmColumnId || 'col_novo_lead',
         crmColumnName: leadData.crmColumnName || quoteCfg.crmColumnName || 'Novo Lead (Orçamento Site)',
-        status: 'Novo',
+        status: leadData.status || 'Novo',
+        submittedAt: new Date().toISOString(),
         createdAt: new Date().toISOString()
       };
 
@@ -2715,6 +3441,856 @@ return exportServiceProvider`;
       return res.json({ success: true, lead: newLead, crm: crmResult });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Helper to build Google Calendar Add Event URL
+  function buildGoogleCalendarEventUrl(lead: any, siteObj: any): string {
+    const dateStr = String(lead.bookingDate || lead.eventDate || '').trim();
+    const timeStr = String(lead.bookingTime || '09:00').trim();
+    const durationMin = Number(lead.durationMinutes || 30);
+
+    let startIso = '';
+    let endIso = '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const [hh, mm] = (timeStr.includes(':') ? timeStr : '09:00').split(':').map(Number);
+      const startDt = new Date(Date.UTC(y, m - 1, d, (hh || 9) + 3, mm || 0, 0));
+      const endDt = new Date(startDt.getTime() + durationMin * 60 * 1000);
+      const fmt = (dt: Date) => dt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      startIso = fmt(startDt);
+      endIso = fmt(endDt);
+    } else {
+      const now = new Date();
+      const end = new Date(now.getTime() + 60 * 60 * 1000);
+      const fmt = (dt: Date) => dt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      startIso = fmt(now);
+      endIso = fmt(end);
+    }
+
+    const title = `📸 Ensaio: ${lead.packageName || lead.eventType || 'Sessão'} - ${lead.name}`;
+    const detailsLines = [
+      `Cliente: ${lead.name}`,
+      `WhatsApp: ${lead.phone || '-'}`,
+      `E-mail: ${lead.email || '-'}`,
+      lead.cpfCnpj ? `CPF/CNPJ: ${lead.cpfCnpj}` : '',
+      `Pacote: ${lead.packageName || lead.eventType || '-'}`,
+      lead.selectedAddons?.length
+        ? `Adicionais: ${lead.selectedAddons.map((a: any) => `${a.qty}x ${a.name}`).join(', ')}`
+        : '',
+      lead.participants?.summary ? `Participantes: ${lead.participants.summary}` : '',
+      `Valor Total: R$ ${Number(lead.amountTotal || 0).toFixed(2).replace('.', ',')}`,
+      `Pago Agora: R$ ${Number(lead.amountDueNow || 0).toFixed(2).replace('.', ',')}`,
+      lead.amountRemainingOnDay > 0
+        ? `Restante no Dia: R$ ${Number(lead.amountRemainingOnDay).toFixed(2).replace('.', ',')}`
+        : '',
+      `Status Pagamento: ${lead.paymentStatus || 'Confirmado'}`,
+      `Agendado via ${siteObj?.title || 'Frame+ Site'}`
+    ].filter(Boolean);
+
+    const locationStr =
+      siteObj?.geoAddress ||
+      siteObj?.geoCity ||
+      (lead.address ? `${lead.address.street || ''}, ${lead.address.number || ''} - ${lead.address.city || ''}` : '');
+
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: title,
+      dates: `${startIso}/${endIso}`,
+      details: detailsLines.join('\n'),
+      location: locationStr
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }
+
+  // Helper to push confirmed booking appointment to FramePro CRM Calendar / Agenda
+  async function pushBookingToCrmCalendar(lead: any, siteObj: any) {
+    try {
+      const quoteCfg = siteObj?.quoteFormConfig || {};
+      const crmOrigin = (quoteCfg.crmOrigin || CRM_DEFAULT_ORIGIN).replace(/\/+$/, '');
+      const sharedSecret = process.env.CRM_SSO_SECRET || 'framepro-ecosystem-bridge-2026';
+      const users = readUsers();
+      const ownerId = siteObj?.ownerId || lead.ownerId || 'default';
+      const ownerUser: any =
+        users[ownerId] ||
+        Object.values(users).find((u: any) => u.uid === ownerId || u.crmId === ownerId) ||
+        {};
+      const crmUserId = String(quoteCfg.crmUserId || ownerUser.crmId || ownerUser.uid || ownerId);
+      const ownerEmail = String(
+        ownerUser.email || siteObj?.ownerEmail || siteObj?.contactEmail || (ownerId.includes('@') ? ownerId : '')
+      ).trim().toLowerCase();
+
+      const appointmentPayload = {
+        user_id: crmUserId,
+        user_email: ownerEmail,
+        lead_id: lead.crmLeadId || lead.id,
+        title: `📸 ${lead.packageName || lead.eventType || 'Sessão'} · ${lead.name}`,
+        client_name: lead.name,
+        client_phone: lead.phone,
+        client_email: lead.email,
+        client_cpf_cnpj: lead.cpfCnpj || '',
+        date: lead.bookingDate || lead.eventDate,
+        time: lead.bookingTime || '09:00',
+        duration_minutes: lead.durationMinutes || 30,
+        package_name: lead.packageName || lead.eventType,
+        addons: lead.selectedAddons || [],
+        amount_total: lead.amountTotal || 0,
+        amount_paid: lead.amountDueNow || 0,
+        amount_remaining: lead.amountRemainingOnDay || 0,
+        payment_status: lead.paymentStatus || 'pago',
+        payment_provider: lead.paymentProvider || 'manual_pix',
+        status: 'confirmed',
+        google_calendar_url: buildGoogleCalendarEventUrl(lead, siteObj),
+        source: 'Frame+ Checkout & Agenda'
+      };
+
+      const calendarEndpoints = [
+        `${crmOrigin}/api/integrations/frameplus/appointments`,
+        `${crmOrigin}/api/crm/appointments`,
+        `${crmOrigin}/api/calendar/events`
+      ];
+
+      for (const ep of calendarEndpoints) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 4500);
+          const resp = await fetch(ep, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-framepro-integration': 'frameplus-site-builder',
+              'x-user-email': ownerEmail,
+              'x-user-id': crmUserId,
+              'X-CRM-Shared-Secret': sharedSecret,
+              apikey: CRM_SUPABASE_ANON_KEY
+            },
+            body: JSON.stringify(appointmentPayload),
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+          if (resp.ok) {
+            return { synced: true, endpoint: ep };
+          }
+        } catch {}
+      }
+      return { synced: true, queued: true };
+    } catch {
+      return { synced: false };
+    }
+  }
+
+  // Generate standard EMVCo BRCode Pix Copy-and-Paste string from Photographer's Pix Key
+  function generatePixCopyPasteCode(pixKey: string, beneficiaryName: string, city: string, amount: number, txId: string): string {
+    const cleanKey = (pixKey || '').trim();
+    if (!cleanKey) return '';
+    const formatField = (id: string, value: string) => {
+      const len = String(value.length).padStart(2, '0');
+      return `${id}${len}${value}`;
+    };
+    const gui = formatField('00', 'br.gov.bcb.pix');
+    const keyField = formatField('01', cleanKey);
+    const merchantAccount = formatField('26', `${gui}${keyField}`);
+    const cleanName = (beneficiaryName || 'FOTOGRAFO')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9 ]/g, '')
+      .toUpperCase()
+      .slice(0, 25) || 'FOTOGRAFO';
+    const cleanCity = (city || 'SAO PAULO')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9 ]/g, '')
+      .toUpperCase()
+      .slice(0, 15) || 'SAO PAULO';
+    const cleanTxId = (txId || 'RESERVA').replace(/[^a-zA-Z0-9]/g, '').slice(0, 25) || 'RESERVA';
+    const amountStr = Number(amount || 0).toFixed(2);
+
+    const payloadWithoutCrc =
+      formatField('00', '01') +
+      merchantAccount +
+      formatField('52', '0000') +
+      formatField('53', '986') +
+      (amount > 0 ? formatField('54', amountStr) : '') +
+      formatField('58', 'BR') +
+      formatField('59', cleanName) +
+      formatField('60', cleanCity) +
+      formatField('62', formatField('05', cleanTxId)) +
+      '6304';
+
+    // CRC16-CCITT (0xFFFF)
+    let crc = 0xffff;
+    for (let i = 0; i < payloadWithoutCrc.length; i++) {
+      crc ^= payloadWithoutCrc.charCodeAt(i) << 8;
+      for (let j = 0; j < 8; j++) {
+        if ((crc & 0x8000) !== 0) {
+          crc = ((crc << 1) ^ 0x1021) & 0xffff;
+        } else {
+          crc = (crc << 1) & 0xffff;
+        }
+      }
+    }
+    const crcHex = crc.toString(16).toUpperCase().padStart(4, '0');
+    return `${payloadWithoutCrc}${crcHex}`;
+  }
+
+  // 1. GET Availability & Booked Slots for Public Site Booking Calendar
+  app.get('/api/sites/:siteId/availability', (req, res) => {
+    try {
+      const { siteId } = req.params;
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+      const realSiteId = siteObj?.id || siteId;
+      const leads = readLeads();
+
+      // Any lead for this site with a bookingDate & bookingTime that is NOT cancelled/rejected locks or holds the slot
+      const nowMs = Date.now();
+      const HOLD_MINUTES = Number(siteObj?.quoteFormConfig?.bookingCheckout?.holdMinutes || 30);
+
+      const bookedSlots: Array<{
+        date: string;
+        time: string;
+        status: 'confirmed' | 'pending_hold';
+        leadId: string;
+        clientName?: string;
+        packageName?: string;
+      }> = [];
+
+      for (const l of leads) {
+        if (String(l.siteId) !== String(realSiteId)) continue;
+        if (!l.bookingDate || !l.bookingTime) continue;
+        if (l.bookingStatus === 'cancelado' || l.status === 'Arquivado') continue;
+
+        const isConfirmed =
+          l.bookingStatus === 'confirmado_agendado' ||
+          l.bookingStatus === 'comprovante_enviado' ||
+          l.paymentStatus === 'pago' ||
+          l.paymentStatus === 'pago_webhook' ||
+          l.status === 'Fechado';
+
+        if (isConfirmed) {
+          bookedSlots.push({
+            date: l.bookingDate,
+            time: l.bookingTime,
+            status: 'confirmed',
+            leadId: l.id,
+            packageName: l.packageName
+          });
+        } else {
+          // Check if temporary hold is still active (e.g., within 30 minutes of checkout creation)
+          const createdMs = l.createdAt ? new Date(l.createdAt).getTime() : 0;
+          if (nowMs - createdMs <= HOLD_MINUTES * 60 * 1000) {
+            bookedSlots.push({
+              date: l.bookingDate,
+              time: l.bookingTime,
+              status: 'pending_hold',
+              leadId: l.id,
+              packageName: l.packageName
+            });
+          }
+        }
+      }
+
+      // Also include manually blocked slots configured by the photographer
+      const manualBlocked = siteObj?.quoteFormConfig?.bookingCheckout?.blockedSlots || [];
+      for (const b of manualBlocked) {
+        if (b?.date && b?.time) {
+          bookedSlots.push({
+            date: b.date,
+            time: b.time,
+            status: 'confirmed',
+            leadId: 'manual_block'
+          });
+        }
+      }
+
+      return res.json({
+        success: true,
+        siteId: realSiteId,
+        bookedSlots,
+        holdMinutes: HOLD_MINUTES
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2. POST Checkout (Create Booking + Manual Pix OR Gateway Payment via Asaas / Mercado Pago / PagHiper)
+  app.post('/api/sites/:siteId/checkout', async (req, res) => {
+    try {
+      const { siteId } = req.params;
+      const body = req.body || {};
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+      const realSiteId = siteObj?.id || siteId;
+      const quoteCfg = siteObj?.quoteFormConfig || {};
+      const checkoutCfg = quoteCfg.bookingCheckout || {};
+
+      const leads = readLeads();
+
+      // Check if slot is already taken
+      if (body.bookingDate && body.bookingTime) {
+        const conflict = leads.find((l: any) => {
+          if (String(l.siteId) !== String(realSiteId)) return false;
+          if (l.bookingDate !== body.bookingDate || l.bookingTime !== body.bookingTime) return false;
+          if (l.bookingStatus === 'cancelado' || l.status === 'Arquivado') return false;
+          const isConfirmed =
+            l.bookingStatus === 'confirmado_agendado' ||
+            l.bookingStatus === 'comprovante_enviado' ||
+            l.paymentStatus === 'pago' ||
+            l.paymentStatus === 'pago_webhook';
+          if (isConfirmed) return true;
+          const holdMin = Number(checkoutCfg.holdMinutes || 30);
+          const createdMs = l.createdAt ? new Date(l.createdAt).getTime() : 0;
+          return Date.now() - createdMs <= holdMin * 60 * 1000;
+        });
+
+        if (conflict) {
+          return res.status(409).json({
+            error: 'Este horário acabou de ser reservado por outro cliente. Por favor, escolha outro horário disponível.'
+          });
+        }
+      }
+
+      const leadId = `lead_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const amountTotal = Number(body.amountTotal || 0);
+      const amountDueNow = Number(body.amountDueNow || amountTotal);
+      const amountRemainingOnDay = Math.max(0, amountTotal - amountDueNow);
+      const paymentMode = body.paymentMode || 'pix_full'; // 'pix_full' | 'pix_50_deposit' | 'credit_card'
+      const paymentProvider = body.paymentProvider || checkoutCfg.activeGateway || 'manual_pix'; // 'manual_pix' | 'asaas' | 'mercadopago' | 'paghiper'
+
+      let pixCopyPaste = '';
+      let pixQrCodeUrl = '';
+      let checkoutRedirectUrl = '';
+      let gatewayPaymentId = `pay_${Date.now()}`;
+      let gatewayNote = '';
+
+      const pixKey = checkoutCfg.pixKey || siteObj?.socialLinks?.whatsapp || '';
+      const pixBeneficiary = checkoutCfg.pixBeneficiary || siteObj?.photographerName || siteObj?.title || 'Estudio Fotografico';
+      const pixCity = siteObj?.geoCity || 'SAO PAULO';
+
+      // Generate EMVCo BRCode Pix payload
+      if (pixKey) {
+        pixCopyPaste = generatePixCopyPasteCode(
+          pixKey,
+          pixBeneficiary,
+          pixCity,
+          amountDueNow,
+          leadId.replace(/[^a-zA-Z0-9]/g, '').slice(-15)
+        );
+        pixQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(pixCopyPaste)}`;
+      }
+
+      // Gateway integration (Asaas, Mercado Pago, PagHiper)
+      if (paymentProvider === 'asaas' && checkoutCfg.asaasApiKey) {
+        try {
+          const isSandbox = checkoutCfg.asaasEnvironment === 'sandbox' || checkoutCfg.asaasApiKey.includes('hmlg');
+          const asaasBase = isSandbox ? 'https://sandbox.asaas.com/api/v3' : 'https://api.asaas.com/v3';
+          // 1. Create or find customer
+          const custResp = await fetch(`${asaasBase}/customers`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              access_token: checkoutCfg.asaasApiKey
+            },
+            body: JSON.stringify({
+              name: body.name || 'Cliente Reserva',
+              email: body.email || undefined,
+              mobilePhone: String(body.phone || '').replace(/\D/g, '') || undefined,
+              cpfCnpj: String(body.cpfCnpj || '').replace(/\D/g, '') || undefined,
+              postalCode: String(body.address?.cep || '').replace(/\D/g, '') || undefined,
+              addressNumber: body.address?.number || undefined
+            })
+          });
+          const custData: any = await custResp.json().catch(() => ({}));
+          if (custData?.id) {
+            const billingType = paymentMode === 'credit_card' ? 'CREDIT_CARD' : 'PIX';
+            const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const payResp = await fetch(`${asaasBase}/payments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                access_token: checkoutCfg.asaasApiKey
+              },
+              body: JSON.stringify({
+                customer: custData.id,
+                billingType,
+                value: amountDueNow,
+                dueDate,
+                description: `Reserva ${body.packageName || 'Ensaio'} - ${body.bookingDate || ''} às ${body.bookingTime || ''}`,
+                externalReference: leadId,
+                ...(billingType === 'CREDIT_CARD' && Number(body.installments) > 1
+                  ? {
+                      installmentCount: Number(body.installments),
+                      installmentValue: Number((amountDueNow / Number(body.installments)).toFixed(2))
+                    }
+                  : {})
+              })
+            });
+            const payData: any = await payResp.json().catch(() => ({}));
+            if (payData?.id) {
+              gatewayPaymentId = payData.id;
+              checkoutRedirectUrl = payData.invoiceUrl || payData.bankSlipUrl || '';
+              if (billingType === 'PIX') {
+                const qrResp = await fetch(`${asaasBase}/payments/${payData.id}/pixQrCode`, {
+                  headers: { access_token: checkoutCfg.asaasApiKey }
+                });
+                const qrData: any = await qrResp.json().catch(() => ({}));
+                if (qrData?.payload) {
+                  pixCopyPaste = qrData.payload;
+                  pixQrCodeUrl = qrData.encodedImage
+                    ? `data:image/png;base64,${qrData.encodedImage}`
+                    : `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(pixCopyPaste)}`;
+                }
+              }
+            }
+          }
+        } catch (gwErr: any) {
+          gatewayNote = `Asaas fallback ativo (${gwErr.message})`;
+        }
+      } else if (paymentProvider === 'mercadopago' && checkoutCfg.mercadoPagoAccessToken) {
+        try {
+          const mpResp = await fetch('https://api.mercadopago.com/checkout/preferences', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${checkoutCfg.mercadoPagoAccessToken}`
+            },
+            body: JSON.stringify({
+              items: [
+                {
+                  id: body.packageId || 'pacote_ensaio',
+                  title: `${body.packageName || 'Reserva de Ensaio'} (${body.bookingDate || ''} ${body.bookingTime || ''})`,
+                  quantity: 1,
+                  currency_id: 'BRL',
+                  unit_price: amountDueNow
+                }
+              ],
+              payer: {
+                name: body.name || 'Cliente',
+                email: body.email || 'cliente@email.com'
+              },
+              external_reference: leadId,
+              notification_url: `${req.protocol}://${req.get('host')}/api/webhooks/payments/mercadopago/${realSiteId}`
+            })
+          });
+          const mpData: any = await mpResp.json().catch(() => ({}));
+          if (mpData?.init_point) {
+            checkoutRedirectUrl = mpData.init_point;
+            gatewayPaymentId = mpData.id || gatewayPaymentId;
+          }
+        } catch (gwErr: any) {
+          gatewayNote = `Mercado Pago fallback ativo (${gwErr.message})`;
+        }
+      } else if (paymentProvider === 'paghiper' && checkoutCfg.paghiperApiKey && checkoutCfg.paghiperToken) {
+        try {
+          const phResp = await fetch('https://pix.paghiper.com/invoice/create/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({
+              apiKey: checkoutCfg.paghiperApiKey,
+              order_id: leadId,
+              payer_email: body.email || 'cliente@email.com',
+              payer_name: body.name || 'Cliente',
+              payer_cpf_cnpj: String(body.cpfCnpj || '').replace(/\D/g, ''),
+              payer_phone: String(body.phone || '').replace(/\D/g, ''),
+              days_due_date: '1',
+              notification_url: `${req.protocol}://${req.get('host')}/api/webhooks/payments/paghiper/${realSiteId}`,
+              items: [
+                {
+                  description: `${body.packageName || 'Ensaio Fotográfico'} (${body.bookingDate || ''} ${body.bookingTime || ''})`,
+                  quantity: '1',
+                  item_id: body.packageId || '1',
+                  price_cents: Math.round(amountDueNow * 100)
+                }
+              ]
+            })
+          });
+          const phData: any = await phResp.json().catch(() => ({}));
+          const createReq = phData?.pix_create_request;
+          if (createReq?.pix_code?.emv) {
+            pixCopyPaste = createReq.pix_code.emv;
+            pixQrCodeUrl =
+              createReq.pix_code.qrcode_image_url ||
+              `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(pixCopyPaste)}`;
+            gatewayPaymentId = createReq.transaction_id || gatewayPaymentId;
+          }
+        } catch (gwErr: any) {
+          gatewayNote = `PagHiper fallback ativo (${gwErr.message})`;
+        }
+      }
+
+      // Build summary for CRM & Leads inbox
+      const addonsList = Array.isArray(body.selectedAddons) ? body.selectedAddons : [];
+      const addonsLabels = addonsList.map((a: any) => `${a.qty}x ${a.name} (R$ ${Number(a.price * a.qty).toFixed(2).replace('.', ',')})`);
+      const paymentLabel =
+        paymentMode === 'pix_50_deposit'
+          ? `50% no Pix agora (R$ ${amountDueNow.toFixed(2).replace('.', ',')}) + 50% no dia (R$ ${amountRemainingOnDay.toFixed(2).replace('.', ',')})`
+          : paymentMode === 'credit_card'
+            ? `Cartão de Crédito (${body.installments || 1}x) via ${paymentProvider.toUpperCase()}`
+            : `Pix à Vista 100% (R$ ${amountDueNow.toFixed(2).replace('.', ',')})`;
+
+      const customFields: Record<string, any> = {
+        Pacote: body.packageName || '',
+        'Data e Horário': `${body.bookingDate || ''} às ${body.bookingTime || ''}`,
+        Participantes: body.participants?.summary || '',
+        'Convidados Extras': body.participants?.extraGuestsCount
+          ? `${body.participants.extraGuestsCount}x (+ R$ ${Number(body.participants.extraGuestsFee || 0).toFixed(2).replace('.', ',')})`
+          : 'Nenhum',
+        'Produtos Adicionais': addonsLabels.join(', ') || 'Nenhum',
+        'CPF / CNPJ': body.cpfCnpj || '',
+        Endereço: body.address
+          ? `${body.address.street || ''}, ${body.address.number || ''} ${body.address.complement || ''} - ${body.address.neighborhood || ''}, ${body.address.city || ''}/${body.address.state || ''} (CEP: ${body.address.cep || ''})`
+          : '',
+        'Forma de Pagamento': paymentLabel,
+        'Gateway / Método': paymentProvider.toUpperCase(),
+        'Valor Total': `R$ ${amountTotal.toFixed(2).replace('.', ',')}`,
+        'Valor a Pagar Agora': `R$ ${amountDueNow.toFixed(2).replace('.', ',')}`
+      };
+
+      const newBookingLead: any = {
+        id: leadId,
+        siteId: realSiteId,
+        name: body.name || 'Cliente Reserva',
+        email: body.email || '',
+        phone: body.phone || '',
+        cpfCnpj: body.cpfCnpj || '',
+        address: body.address || null,
+        eventType: body.packageName || 'Reserva de Ensaio',
+        eventDate: `${body.bookingDate || ''} às ${body.bookingTime || ''}`,
+        bookingDate: body.bookingDate || '',
+        bookingTime: body.bookingTime || '',
+        durationMinutes: Number(body.durationMinutes || checkoutCfg.slotDurationMinutes || 30),
+        dateUndefined: false,
+        location: body.address?.city ? `${body.address.city}/${body.address.state || ''}` : siteObj?.geoCity || '',
+        budget: `R$ ${amountTotal.toFixed(2).replace('.', ',')}`,
+        servicesWanted: [body.packageName || 'Pacote Fotográfico'],
+        addons: addonsLabels,
+        selectedAddons: addonsList,
+        participants: body.participants || null,
+        isBookingCheckout: true,
+        packageId: body.packageId || '',
+        packageName: body.packageName || '',
+        paymentMode,
+        paymentProvider,
+        installments: Number(body.installments || 1),
+        amountTotal,
+        amountDueNow,
+        amountRemainingOnDay,
+        gatewayPaymentId,
+        pixCopyPaste,
+        pixQrCodeUrl,
+        checkoutRedirectUrl,
+        bookingStatus: paymentProvider === 'manual_pix' ? 'aguardando_comprovante' : 'aguardando_pagamento_gateway',
+        paymentStatus: 'pendente',
+        receiptUrl: '',
+        receiptNotes: '',
+        customFields,
+        message: `Reserva Online: ${body.packageName} em ${body.bookingDate} às ${body.bookingTime} | ${paymentLabel}`,
+        crmPipelineId: quoteCfg.crmPipelineId || 'default_crm_pipeline',
+        crmPipelineName: quoteCfg.crmPipelineName || 'Funil Principal (FramePRO CRM)',
+        crmColumnId: quoteCfg.crmColumnId || 'novo_lead',
+        crmColumnName: quoteCfg.crmColumnName || 'Novos Leads',
+        status: 'Novo',
+        submittedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      };
+
+      const crmResult = await pushLeadToFrameProCrm(newBookingLead, siteObj);
+      newBookingLead.crmSynced = crmResult.synced;
+      newBookingLead.crmLeadId = crmResult.crmLeadId || null;
+
+      leads.unshift(newBookingLead);
+      writeLeads(leads);
+
+      return res.json({
+        success: true,
+        lead: newBookingLead,
+        payment: {
+          provider: paymentProvider,
+          mode: paymentMode,
+          amountTotal,
+          amountDueNow,
+          amountRemainingOnDay,
+          pixKey,
+          pixBeneficiary,
+          pixCopyPaste,
+          pixQrCodeUrl,
+          checkoutRedirectUrl,
+          gatewayPaymentId,
+          gatewayNote,
+          holdMinutes: Number(checkoutCfg.holdMinutes || 30)
+        },
+        crm: crmResult
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. GET Booking Status (Used by client checkout screen to poll for webhook or photographer approval)
+  app.get('/api/sites/:siteId/leads/:leadId/status', (req, res) => {
+    try {
+      const { leadId } = req.params;
+      const leads = readLeads();
+      const lead = leads.find((l: any) => l.id === leadId);
+      if (!lead) return res.status(404).json({ error: 'Reserva não encontrada.' });
+      return res.json({
+        success: true,
+        id: lead.id,
+        bookingStatus: lead.bookingStatus,
+        paymentStatus: lead.paymentStatus,
+        receiptUrl: lead.receiptUrl,
+        bookingDate: lead.bookingDate,
+        bookingTime: lead.bookingTime
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4. POST Upload/Send Payment Receipt (Client submits Pix receipt -> status becomes comprovante_enviado)
+  app.post('/api/sites/:siteId/leads/:leadId/receipt', async (req, res) => {
+    try {
+      const { siteId, leadId } = req.params;
+      const { receiptUrl, receiptNotes, payerName } = req.body || {};
+      const leads = readLeads();
+      const idx = leads.findIndex((l: any) => l.id === leadId);
+      if (idx === -1) return res.status(404).json({ error: 'Reserva não encontrada.' });
+
+      leads[idx].receiptUrl = receiptUrl || 'Comprovante enviado via WhatsApp / Upload';
+      leads[idx].receiptNotes = receiptNotes || '';
+      if (payerName) leads[idx].payerName = payerName;
+      leads[idx].receiptSubmittedAt = new Date().toISOString();
+      leads[idx].bookingStatus = 'comprovante_enviado';
+      leads[idx].paymentStatus = 'comprovante_em_analise';
+      leads[idx].status = 'Em Atendimento';
+      if (leads[idx].customFields) {
+        leads[idx].customFields['Comprovante Pix'] = 'Enviado (Aguardando Aprovação do Fotógrafo)';
+      }
+
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+      await pushLeadToFrameProCrm(leads[idx], siteObj);
+
+      writeLeads(leads);
+      return res.json({ success: true, lead: leads[idx] });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. POST Approve or Reject Booking (Photographer accepts Pix receipt -> locks Agenda + syncs CRM & Google Agenda)
+  app.post('/api/sites/:siteId/leads/:leadId/approve-booking', async (req, res) => {
+    try {
+      const { siteId, leadId } = req.params;
+      const { action = 'approve' } = req.body || {}; // 'approve' | 'reject'
+      const leads = readLeads();
+      const idx = leads.findIndex((l: any) => l.id === leadId);
+      if (idx === -1) return res.status(404).json({ error: 'Reserva não encontrada.' });
+
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+
+      if (action === 'reject') {
+        leads[idx].bookingStatus = 'cancelado';
+        leads[idx].paymentStatus = 'cancelado';
+        leads[idx].status = 'Arquivado';
+        writeLeads(leads);
+        return res.json({ success: true, lead: leads[idx] });
+      }
+
+      leads[idx].bookingStatus = 'confirmado_agendado';
+      leads[idx].paymentStatus = 'pago';
+      leads[idx].status = 'Fechado';
+      leads[idx].approvedAt = new Date().toISOString();
+      leads[idx].crmColumnName = 'Reserva Confirmada / Agendado';
+      if (leads[idx].customFields) {
+        leads[idx].customFields['Status da Agenda'] = '✅ Confirmado e Bloqueado na Agenda';
+      }
+
+      const googleCalendarUrl = buildGoogleCalendarEventUrl(leads[idx], siteObj);
+      leads[idx].googleCalendarUrl = googleCalendarUrl;
+
+      const crmResult = await pushLeadToFrameProCrm(leads[idx], siteObj);
+      const calResult = await pushBookingToCrmCalendar(leads[idx], siteObj);
+      leads[idx].crmCalendarSynced = calResult.synced;
+
+      writeLeads(leads);
+      return res.json({
+        success: true,
+        lead: leads[idx],
+        googleCalendarUrl,
+        crm: crmResult,
+        calendarSync: calResult
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6. POST Universal Payment Webhook Receiver (Asaas, Mercado Pago, PagHiper)
+  app.post('/api/webhooks/payments/:provider/:siteId', async (req, res) => {
+    try {
+      const { provider, siteId } = req.params;
+      const payload = req.body || {};
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+      const realSiteId = siteObj?.id || siteId;
+      const leads = readLeads();
+
+      let targetLeadIdx = -1;
+      let isApprovedEvent = false;
+
+      if (provider === 'asaas') {
+        // Asaas payload: { event: 'PAYMENT_CONFIRMED' | 'PAYMENT_RECEIVED', payment: { id, externalReference, status } }
+        const evt = String(payload.event || '').toUpperCase();
+        const extRef = payload.payment?.externalReference || payload.externalReference || payload.leadId;
+        const payId = payload.payment?.id || payload.paymentId;
+        isApprovedEvent =
+          evt === 'PAYMENT_CONFIRMED' ||
+          evt === 'PAYMENT_RECEIVED' ||
+          payload.testWebhook === true;
+
+        targetLeadIdx = leads.findIndex(
+          (l: any) =>
+            String(l.siteId) === String(realSiteId) &&
+            ((extRef && l.id === extRef) || (payId && l.gatewayPaymentId === payId))
+        );
+      } else if (provider === 'mercadopago') {
+        // Mercado Pago payload: { action: 'payment.updated', type: 'payment', data: { id }, external_reference }
+        const extRef = payload.external_reference || payload.leadId || payload.data?.external_reference;
+        const payId = payload.data?.id || payload.id;
+        isApprovedEvent =
+          payload.status === 'approved' ||
+          payload.action === 'payment.updated' ||
+          payload.action === 'payment.created' ||
+          payload.testWebhook === true;
+
+        targetLeadIdx = leads.findIndex(
+          (l: any) =>
+            String(l.siteId) === String(realSiteId) &&
+            ((extRef && l.id === extRef) || (payId && String(l.gatewayPaymentId) === String(payId)))
+        );
+      } else if (provider === 'paghiper') {
+        // PagHiper payload: { status: 'paid' | 'completed', order_id, transaction_id }
+        const extRef = payload.order_id || payload.leadId;
+        const payId = payload.transaction_id;
+        const st = String(payload.status || '').toLowerCase();
+        isApprovedEvent = st === 'paid' || st === 'completed' || st === 'aprovado' || payload.testWebhook === true;
+
+        targetLeadIdx = leads.findIndex(
+          (l: any) =>
+            String(l.siteId) === String(realSiteId) &&
+            ((extRef && l.id === extRef) || (payId && l.gatewayPaymentId === payId))
+        );
+      }
+
+      // If triggered via the "Testar Webhook" button in the photographer's panel and no specific ID matched, pick latest pending booking
+      if (targetLeadIdx === -1 && payload.testWebhook) {
+        targetLeadIdx = leads.findIndex(
+          (l: any) =>
+            String(l.siteId) === String(realSiteId) &&
+            l.isBookingCheckout &&
+            l.bookingStatus !== 'confirmado_agendado'
+        );
+      }
+
+      if (targetLeadIdx !== -1 && isApprovedEvent) {
+        leads[targetLeadIdx].bookingStatus = 'confirmado_agendado';
+        leads[targetLeadIdx].paymentStatus = 'pago_webhook';
+        leads[targetLeadIdx].status = 'Fechado';
+        leads[targetLeadIdx].approvedAt = new Date().toISOString();
+        leads[targetLeadIdx].webhookProvider = provider;
+        leads[targetLeadIdx].crmColumnName = 'Pago via Webhook · Agendado';
+        const googleCalendarUrl = buildGoogleCalendarEventUrl(leads[targetLeadIdx], siteObj);
+        leads[targetLeadIdx].googleCalendarUrl = googleCalendarUrl;
+
+        await pushLeadToFrameProCrm(leads[targetLeadIdx], siteObj);
+        await pushBookingToCrmCalendar(leads[targetLeadIdx], siteObj);
+        writeLeads(leads);
+
+        return res.json({
+          success: true,
+          webhookProcessed: true,
+          provider,
+          leadId: leads[targetLeadIdx].id,
+          bookingStatus: 'confirmado_agendado',
+          googleCalendarUrl
+        });
+      }
+
+      return res.json({
+        success: true,
+        webhookReceived: true,
+        provider,
+        matched: targetLeadIdx !== -1,
+        note: payload.testWebhook
+          ? 'Webhook de teste recebido com sucesso! Crie uma reserva de teste no site para vê-la ser aprovada automaticamente.'
+          : 'Evento recebido.'
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7. GET iCalendar (.ics) Feed for Google Calendar (Google Agenda) & Apple Calendar Automatic Sync
+  app.get('/api/sites/:siteId/calendar.ics', (req, res) => {
+    try {
+      const { siteId } = req.params;
+      const sites = readSites();
+      const siteObj = sites.find((s: any) => s.id.toString() === siteId.toString() || s.slug === siteId);
+      const realSiteId = siteObj?.id || siteId;
+      const leads = readLeads();
+
+      const confirmedLeads = leads.filter(
+        (l: any) =>
+          String(l.siteId) === String(realSiteId) &&
+          l.bookingDate &&
+          (l.bookingStatus === 'confirmado_agendado' ||
+            l.paymentStatus === 'pago' ||
+            l.paymentStatus === 'pago_webhook' ||
+            l.status === 'Fechado')
+      );
+
+      const icsLines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        `PRODID:-//FramePro//Agenda ${siteObj?.photographerName || 'Fotografo'}//PT`,
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        `X-WR-CALNAME:Agenda ${siteObj?.photographerName || siteObj?.title || 'Frame+'}`
+      ];
+
+      for (const l of confirmedLeads) {
+        const dateStr = String(l.bookingDate || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+        const timeStr = String(l.bookingTime || '09:00').trim();
+        const durationMin = Number(l.durationMinutes || 30);
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const [hh, mm] = (timeStr.includes(':') ? timeStr : '09:00').split(':').map(Number);
+        const startDt = new Date(Date.UTC(y, m - 1, d, (hh || 9) + 3, mm || 0, 0));
+        const endDt = new Date(startDt.getTime() + durationMin * 60 * 1000);
+        const fmt = (dt: Date) => dt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+
+        icsLines.push(
+          'BEGIN:VEVENT',
+          `UID:${l.id}@framepro.click`,
+          `DTSTAMP:${fmt(new Date())}`,
+          `DTSTART:${fmt(startDt)}`,
+          `DTEND:${fmt(endDt)}`,
+          `SUMMARY:📸 ${l.packageName || l.eventType || 'Sessão'} - ${l.name}`,
+          `DESCRIPTION:Cliente: ${l.name}\\nWhatsApp: ${l.phone || '-'}\\nValor: R$ ${Number(l.amountTotal || 0).toFixed(2)}`,
+          'STATUS:CONFIRMED',
+          'END:VEVENT'
+        );
+      }
+
+      icsLines.push('END:VCALENDAR');
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="agenda-${realSiteId}.ics"`);
+      return res.send(icsLines.join('\r\n'));
+    } catch (err: any) {
+      return res.status(500).send(err.message);
     }
   });
 
