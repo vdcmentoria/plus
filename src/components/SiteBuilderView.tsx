@@ -62,8 +62,7 @@ import {
   TrendingUp,
   Film,
   Layers,
-  Database,
-  Calendar
+  Database
 } from 'lucide-react';
 import { PublicWebsiteView, SiteData, BlogPost, SavedLayoutTheme, SavedSectionLayout } from './PublicWebsiteView';
 import {
@@ -114,21 +113,6 @@ export interface SiteLead {
   message?: string;
   submittedAt: string;
   status?: 'Novo' | 'Em Atendimento' | 'Fechado' | 'Arquivado';
-  // Booking Checkout & Payment Fields
-  isBookingCheckout?: boolean;
-  packageName?: string;
-  bookingDate?: string;
-  bookingTime?: string;
-  bookingStatus?: string;
-  paymentStatus?: string;
-  paymentMode?: string;
-  paymentProvider?: string;
-  amountTotal?: number;
-  amountDueNow?: number;
-  amountRemainingOnDay?: number;
-  receiptUrl?: string;
-  receiptNotes?: string;
-  googleCalendarUrl?: string;
 }
 
 export function SiteBuilderView({
@@ -8976,26 +8960,9 @@ export function SiteBuilderView({
                               <span className="px-2.5 py-1 rounded-full bg-[#D05634]/15 text-[#D05634] text-[10px] font-black uppercase">
                                 {lead.eventType || 'Orçamento'}
                               </span>
-                                {lead.crmPipelineName && (
+                              {lead.crmPipelineName && (
                                 <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 text-[9px] font-black uppercase tracking-wider">
                                   CRM: {lead.crmPipelineName} → {lead.crmColumnName || 'Novo Lead'}
-                                </span>
-                              )}
-                              {lead.isBookingCheckout && (
-                                <span
-                                  className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
-                                    lead.bookingStatus === 'confirmado_agendado'
-                                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                                      : lead.bookingStatus === 'comprovante_enviado'
-                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse'
-                                        : 'bg-sky-500/15 text-sky-400'
-                                  }`}
-                                >
-                                  {lead.bookingStatus === 'confirmado_agendado'
-                                    ? '✅ Agenda Confirmada & Paga'
-                                    : lead.bookingStatus === 'comprovante_enviado'
-                                      ? '🧾 Comprovante Pix Enviado · Aprovar'
-                                      : '⏳ Aguardando Pagamento / Comprovante'}
                                 </span>
                               )}
                             </div>
@@ -9043,86 +9010,6 @@ export function SiteBuilderView({
                             </div>
                           )}
 
-                          {/* Pix Receipt & Approval Box for Booking Checkouts */}
-                          {lead.isBookingCheckout && (
-                            <div
-                              className={`p-3.5 rounded-xl border space-y-2.5 ${
-                                lead.bookingStatus === 'confirmado_agendado'
-                                  ? 'bg-emerald-500/10 border-emerald-500/30'
-                                  : 'bg-amber-500/10 border-amber-500/30'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-2 text-xs">
-                                <span className="font-black text-gray-900 dark:text-white">
-                                  {lead.bookingStatus === 'confirmado_agendado'
-                                    ? '✅ Horário Trancado na Agenda & Sincronizado com CRM'
-                                    : '🧾 Aprovação de Pagamento & Reserva na Agenda'}
-                                </span>
-                                {lead.receiptUrl &&
-                                  (lead.receiptUrl.startsWith('http') || lead.receiptUrl.startsWith('data:') || lead.receiptUrl.startsWith('/')) && (
-                                    <a
-                                      href={lead.receiptUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="px-2.5 py-1 rounded-lg bg-[#D05634] text-white text-[10px] font-black uppercase"
-                                    >
-                                      Ver Comprovante Anexado
-                                    </a>
-                                  )}
-                              </div>
-
-                              {lead.receiptNotes && (
-                                <p className="text-[11px] text-gray-600 dark:text-zinc-300">
-                                  Obs. do Comprovante: <strong>{lead.receiptNotes}</strong>
-                                </p>
-                              )}
-
-                              <div className="flex flex-wrap items-center gap-2 pt-1">
-                                {lead.bookingStatus !== 'confirmado_agendado' && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        const res = await fetch(
-                                          `/api/sites/${siteData.id}/leads/${lead.id}/approve-booking`,
-                                          {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ action: 'approve' })
-                                          }
-                                        );
-                                        if (res.ok) {
-                                          const data = await res.json();
-                                          if (data.lead) {
-                                            setLeads((prev) =>
-                                              prev.map((l) => (l.id === lead.id ? data.lead : l))
-                                            );
-                                          }
-                                        }
-                                      } catch {}
-                                    }}
-                                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md cursor-pointer"
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Aceitar Pagamento & Fechar na Agenda</span>
-                                  </button>
-                                )}
-
-                                {lead.googleCalendarUrl && (
-                                  <a
-                                    href={lead.googleCalendarUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5"
-                                  >
-                                    <Calendar className="w-3.5 h-3.5" />
-                                    <span>Abrir na Google Agenda</span>
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
                           {customEntries.length > 0 && (
                             <div className={`p-3 rounded-xl border text-[11px] space-y-1 ${
                               isDarkShell ? 'bg-zinc-900/60 border-zinc-800 text-zinc-300' : 'bg-gray-50 border-gray-200 text-gray-700'
@@ -9150,7 +9037,7 @@ export function SiteBuilderView({
                             <div className="flex items-center gap-2">
                               {cleanPhone && (
                                 <a
-                                  href={`https://wa.me/${cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`}?text=${encodeURIComponent(`Olá ${lead.name}! Recebi sua reserva/orçamento pelo site.`)}`}
+                                  href={`https://wa.me/${cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`}?text=${encodeURIComponent(`Olá ${lead.name}! Recebi seu pedido de orçamento pelo site.`)}`}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1.5 transition-colors"

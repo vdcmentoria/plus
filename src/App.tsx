@@ -105,8 +105,6 @@ import {
   limit
 } from 'firebase/firestore';
 import { auth, db, checkConnection } from './lib/firebase';
-import { getDeviceFingerprint, enforceClientIpBanLockout } from './lib/deviceFingerprint';
-import { isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS } from './lib/disposableDomains';
 import { LojaSidebar } from './components/LojaSidebar';
 import { PublicWebsiteView } from './components/PublicWebsiteView';
 import { SiteBuilderView } from './components/SiteBuilderView';
@@ -445,31 +443,15 @@ function AuthForm({
     setError('');
     setSuccess('');
 
-    const visitorId = getDeviceFingerprint();
-
     try {
       if (mode === 'login') {
         // 1. Primary: Unified Login against FramePro CRM database
         const fpRes = await fetch('/api/auth/framepro-login', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Device-Fingerprint': visitorId
-          },
-          body: JSON.stringify({ email, password, visitorId })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
         });
         const fpData = await fpRes.json().catch(() => ({}));
-
-        // Instant lockout if IP/Device was banned (e.g. disposable email or brute force)
-        if (fpRes.status === 403 && (fpData.code === 'IP_BANNED' || fpData.banned)) {
-          enforceClientIpBanLockout();
-          throw new Error(fpData.error || 'Acesso bloqueado permanentemente.');
-        }
-
-        // Respect rate limiting (do not fall back to Firebase)
-        if (fpRes.status === 429 || fpData.code === 'RATE_LIMITED') {
-          throw new Error(fpData.error || 'Muitas tentativas de login. Aguarde alguns minutos.');
-        }
 
         if (fpRes.ok && fpData.user) {
           if (onAuthSuccess) {
@@ -478,33 +460,19 @@ function AuthForm({
           return;
         }
 
-        // Check client-side disposable email before any legacy Firebase fallback
-        if (isDisposableEmailDomain(email).blocked) {
-          enforceClientIpBanLockout();
-          throw new Error('Domínio de e-mail proibido. Acesso bloqueado.');
-        }
-
         // 2. Fallback: Check if user has a legacy Firebase account and sync it
         try {
           const fbCred = await signInWithEmailAndPassword(auth, email, password);
           const syncRes = await fetch(`/api/users/${fbCred.user.uid}`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Device-Fingerprint': visitorId
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               uid: fbCred.user.uid,
               email: fbCred.user.email,
               displayName: fbCred.user.displayName || email.split('@')[0],
-              photoURL: fbCred.user.photoURL || '',
-              visitorId
+              photoURL: fbCred.user.photoURL || ''
             })
           });
-          if (syncRes.status === 403) {
-            enforceClientIpBanLockout();
-            throw new Error('Acesso bloqueado permanentemente.');
-          }
           const syncedUser = syncRes.ok ? await syncRes.json() : {
             uid: fbCred.user.uid,
             email: fbCred.user.email,
@@ -514,26 +482,17 @@ function AuthForm({
             onAuthSuccess(syncedUser);
           }
           return;
-        } catch (fbErr: any) {
-          if (fbErr?.message?.includes('bloqueado')) throw fbErr;
+        } catch {
           throw new Error(fpData.error || 'Usuário não encontrado ou senha incorreta.');
         }
       } else if (mode === 'register') {
         // Unified Registration in FramePro CRM database + FramePlus
         const fpRes = await fetch('/api/auth/framepro-register', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Device-Fingerprint': visitorId
-          },
-          body: JSON.stringify({ email, password, name, visitorId })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, name })
         });
         const fpData = await fpRes.json().catch(() => ({}));
-
-        if (fpRes.status === 403 && (fpData.code === 'IP_BANNED' || fpData.banned)) {
-          enforceClientIpBanLockout();
-          throw new Error(fpData.error || 'Acesso bloqueado permanentemente.');
-        }
 
         if (!fpRes.ok) {
           throw new Error(fpData.error || 'Não foi possível criar a conta.');
@@ -551,17 +510,9 @@ function AuthForm({
       } else if (mode === 'recovery') {
         const fpRes = await fetch('/api/auth/framepro-reset-password', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Device-Fingerprint': visitorId
-          },
-          body: JSON.stringify({ email, visitorId })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
         });
-        const fpData = await fpRes.json().catch(() => ({}));
-        if (fpRes.status === 403 && (fpData.code === 'IP_BANNED' || fpData.banned)) {
-          enforceClientIpBanLockout();
-          throw new Error(fpData.error || 'Acesso bloqueado permanentemente.');
-        }
         if (fpRes.ok) {
           setSuccess('E-mail de recuperação enviado pelo FramePro! Verifique sua caixa de entrada.');
         } else {
@@ -585,29 +536,20 @@ function AuthForm({
     setIsLoading(true);
     setError('');
     const provider = new GoogleAuthProvider();
-    const visitorId = getDeviceFingerprint();
     try {
       const result = await signInWithPopup(auth, provider);
       // Create/Update user doc on Server (links by email if already in FramePro)
       try {
         const res = await fetch(`/api/users/${result.user.uid}`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Device-Fingerprint': visitorId
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uid: result.user.uid,
             email: result.user.email,
             displayName: result.user.displayName,
             photoURL: result.user.photoURL,
-            visitorId
           })
         });
-        if (res.status === 403) {
-          enforceClientIpBanLockout();
-          return;
-        }
         if (res.ok) {
           const userData = await res.json();
           if (onAuthSuccess) onAuthSuccess(userData);
@@ -7751,7 +7693,7 @@ function AdminView({
   user?: any | null;
   isAdmin?: boolean;
 }) {
-  const [activeTab, setActiveTab] = useState<'usuarios' | 'sites' | 'seguranca' | 'armazenamento' | 'planos'>('usuarios');
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'sites' | 'armazenamento' | 'planos'>('usuarios');
   const [usersList, setUsersList] = useState<any[]>([]);
   const [allCollections, setAllCollections] = useState<any[]>([]);
   const [allSites, setAllSites] = useState<any[]>([]);
@@ -7772,34 +7714,6 @@ function AdminView({
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
 
-  // Security & IP/Device Ban State
-  const [securityData, setSecurityData] = useState<{
-    bannedIps: any[];
-    bannedDevices: any[];
-    customBlockedDomains: string[];
-    builtInDomainsCount: number;
-    deviceAccountsCount: number;
-  }>({
-    bannedIps: [],
-    bannedDevices: [],
-    customBlockedDomains: ['fldubai.com'],
-    builtInDomainsCount: DISPOSABLE_EMAIL_DOMAINS.length,
-    deviceAccountsCount: 0
-  });
-  const [manualBanIp, setManualBanIp] = useState('');
-  const [manualBanDevice, setManualBanDevice] = useState('');
-  const [manualBanEmail, setManualBanEmail] = useState('');
-  const [manualBanReason, setManualBanReason] = useState('');
-  const [newBlockedDomain, setNewBlockedDomain] = useState('');
-  const [testEmailInput, setTestEmailInput] = useState('');
-  const [testEmailResult, setTestEmailResult] = useState<{ blocked: boolean; matchedDomain: string } | null>(null);
-  const [securityFeedback, setSecurityFeedback] = useState<string | null>(null);
-
-  const showSecurityFeedback = (msg: string) => {
-    setSecurityFeedback(msg);
-    setTimeout(() => setSecurityFeedback(null), 4000);
-  };
-
   const getPublicSiteUrl = (site: any): string => {
     if (!site) return '';
     if (site.customDomain) {
@@ -7812,17 +7726,16 @@ function AdminView({
     return `${protocol}//${host}/${slug}`;
   };
 
-  // Fetch real users, collections, sites and security bans for Admin
+  // Fetch real users, collections and sites for Admin
   const loadAdminData = async () => {
     setIsLoading(true);
     try {
-      const [usersRes, collsRes, healthRes, settingsRes, sitesRes, secRes] = await Promise.all([
+      const [usersRes, collsRes, healthRes, settingsRes, sitesRes] = await Promise.all([
         fetch('/api/users'),
         fetch('/api/collections'),
         fetch('/api/health'),
         fetch('/api/settings'),
-        fetch('/api/sites'),
-        fetch('/api/admin/security')
+        fetch('/api/sites')
       ]);
 
       if (usersRes.ok) {
@@ -7845,114 +7758,10 @@ function AdminView({
         const sett = await settingsRes.json();
         setSettings(sett);
       }
-      if (secRes.ok) {
-        const sec = await secRes.json();
-        setSecurityData({
-          bannedIps: Array.isArray(sec.bannedIps) ? sec.bannedIps : [],
-          bannedDevices: Array.isArray(sec.bannedDevices) ? sec.bannedDevices : [],
-          customBlockedDomains: Array.isArray(sec.customBlockedDomains) ? sec.customBlockedDomains : ['fldubai.com'],
-          builtInDomainsCount: sec.builtInDomainsCount || DISPOSABLE_EMAIL_DOMAINS.length,
-          deviceAccountsCount: sec.deviceAccountsCount || 0
-        });
-      }
     } catch (err) {
       console.error("Error loading admin data:", err);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleQuickBanUser = async (targetUser: any) => {
-    if (!targetUser) return;
-    const reason = `Banimento direto pelo Admin (${targetUser.email || targetUser.displayName || targetUser.uid})`;
-    try {
-      const res = await fetch('/api/admin/security/ban', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid: targetUser.uid,
-          email: targetUser.email,
-          ip: targetUser.lastIp || '',
-          visitorId: targetUser.visitorId || '',
-          reason
-        })
-      });
-      if (res.ok) {
-        showSecurityFeedback(`Usuário e IP banidos com sucesso: ${targetUser.email || targetUser.uid}`);
-        await loadAdminData();
-      }
-    } catch (err) {
-      console.error('Erro ao banir usuário/IP:', err);
-    }
-  };
-
-  const handleQuickUnbanTarget = async (params: { ip?: string; visitorId?: string; email?: string; uid?: string }) => {
-    try {
-      const res = await fetch('/api/admin/security/unban', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
-      });
-      if (res.ok) {
-        showSecurityFeedback(`Desbanimento concluído com sucesso!`);
-        await loadAdminData();
-      }
-    } catch (err) {
-      console.error('Erro ao desbanir:', err);
-    }
-  };
-
-  const handleManualBanSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualBanIp.trim() && !manualBanDevice.trim() && !manualBanEmail.trim()) return;
-    try {
-      const res = await fetch('/api/admin/security/ban', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ip: manualBanIp.trim(),
-          visitorId: manualBanDevice.trim(),
-          email: manualBanEmail.trim(),
-          reason: manualBanReason.trim() || 'Bloqueio manual pelo Administrador'
-        })
-      });
-      if (res.ok) {
-        setManualBanIp('');
-        setManualBanDevice('');
-        setManualBanEmail('');
-        setManualBanReason('');
-        showSecurityFeedback('IP / Dispositivo adicionado à lista negra permanente!');
-        await loadAdminData();
-      }
-    } catch (err) {
-      console.error('Erro ao adicionar banimento manual:', err);
-    }
-  };
-
-  const handleDomainAction = async (action: 'add' | 'remove', domain: string) => {
-    const clean = domain.trim().toLowerCase().replace(/^@/, '').replace(/^www\./, '');
-    if (!clean) return;
-    try {
-      const res = await fetch('/api/admin/security/domains', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, domain: clean })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSecurityData(prev => ({
-          ...prev,
-          customBlockedDomains: data.customBlockedDomains || prev.customBlockedDomains
-        }));
-        if (action === 'add') {
-          setNewBlockedDomain('');
-          showSecurityFeedback(`Domínio @${clean} adicionado ao bloqueio instantâneo por IP!`);
-        } else {
-          showSecurityFeedback(`Domínio @${clean} removido da lista customizada.`);
-        }
-      }
-    } catch (err) {
-      console.error('Erro ao gerenciar domínio bloqueado:', err);
     }
   };
 
@@ -8018,18 +7827,10 @@ function AdminView({
 
   // Filter users
   const filteredUsers = enrichedUsers.filter(u => {
-    const term = searchTerm.toLowerCase();
     const matchesSearch = 
-      (u.displayName || '').toLowerCase().includes(term) ||
-      (u.email || '').toLowerCase().includes(term) ||
-      (u.lastIp || '').toLowerCase().includes(term) ||
-      (u.visitorId || '').toLowerCase().includes(term);
-    const isBanned = u.status === 'Banido' || u.isIpBanned;
-    const matchesStatus =
-      statusFilter === 'all' ||
-      (statusFilter === 'active' && u.status === 'Ativo' && !isBanned) ||
-      (statusFilter === 'inactive' && u.status === 'Inativo') ||
-      (statusFilter === 'banned' && isBanned);
+      (u.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (u.email || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? u.status !== 'Inativo' : u.status === 'Inativo');
     const matchesRole = roleFilter === 'all' || (roleFilter === 'admin' ? u.role === 'admin' : u.role !== 'admin');
     return matchesSearch && matchesStatus && matchesRole;
   });
@@ -8101,7 +7902,6 @@ function AdminView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...editingUser,
-          adminAction: true,
           storageLimitGB: Number(editingUser.storageLimitGB || 30),
           trialDays: Number(editingUser.trialDays || 7),
           expiresAt: editingUser.expiresAt || null
@@ -8112,10 +7912,10 @@ function AdminView({
         const saved = await response.json();
         setUsersList(prev => prev.map(u => u.uid === saved.uid ? { ...u, ...saved } : u));
         setEditingUser(null);
-        loadAdminData();
       }
     } catch (err) {
       console.error("Error updating user:", err);
+      alert("Erro ao salvar alterações do usuário.");
     }
   };
 
@@ -8133,7 +7933,6 @@ function AdminView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...targetUser,
-          adminAction: true,
           role: newRole,
           isAdmin: newRole === 'admin'
         })
@@ -8149,9 +7948,9 @@ function AdminView({
   };
 
   const exportCSV = () => {
-    const headers = "UID,Nome,Email,IP,DeviceID,Função,Plano,Limite_GB,Usado_MB,Usado_Percent,Status\n";
+    const headers = "UID,Nome,Email,Função,Plano,Limite_GB,Usado_MB,Usado_Percent,Status\n";
     const rows = enrichedUsers.map(u => 
-      `"${u.uid}","${u.displayName || ''}","${u.email || ''}","${u.lastIp || ''}","${u.visitorId || ''}","${u.role || 'user'}","${u.planName || 'Luz'}","${u.storage.limitGB}","${u.storage.totalMB.toFixed(1)}","${u.storage.formattedPercent}","${u.status || 'Ativo'}"`
+      `"${u.uid}","${u.displayName || ''}","${u.email || ''}","${u.role || 'user'}","${u.planName || 'Luz'}","${u.storage.limitGB}","${u.storage.totalMB.toFixed(1)}","${u.storage.formattedPercent}","${u.status || 'Ativo'}"`
     ).join("\n");
 
     const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
@@ -8174,7 +7973,7 @@ function AdminView({
               Super Admin
             </span>
           </div>
-          <p className="text-gray-500 text-sm mt-1">Gerencie permissões, cotas de armazenamento, bloqueio de IPs e usuários da plataforma.</p>
+          <p className="text-gray-500 text-sm mt-1">Gerencie permissões, cotas de armazenamento e usuários da plataforma multitenant.</p>
         </div>
         <div className="flex items-center gap-3">
           <button 
@@ -8195,18 +7994,6 @@ function AdminView({
           )}
         </div>
       </div>
-
-      {securityFeedback && (
-        <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-bold flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2">
-            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{securityFeedback}</span>
-          </div>
-          <button onClick={() => setSecurityFeedback(null)} className="text-emerald-600 hover:text-emerald-800">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
 
       {/* Top Metrics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
@@ -8241,23 +8028,21 @@ function AdminView({
         </div>
 
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
-            <ShieldAlert className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Grid className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-xs text-gray-500 font-medium">IPs & Dispositivos Banidos</div>
-            <div className="text-2xl font-bold text-gray-900">
-              {securityData.bannedIps.length + securityData.bannedDevices.length}
-            </div>
+            <div className="text-xs text-gray-500 font-medium">Coleções Criadas</div>
+            <div className="text-2xl font-bold text-gray-900">{allCollections.length}</div>
           </div>
         </div>
       </div>
 
-      <div className="flex justify-center mb-10 overflow-x-auto">
+      <div className="flex justify-center mb-10">
         <div className="inline-flex items-center p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
           <button 
             onClick={() => setActiveTab('usuarios')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'usuarios' 
                 ? 'bg-[#D05634] text-white shadow-sm' 
                 : 'text-gray-500 hover:text-gray-900'
@@ -8267,7 +8052,7 @@ function AdminView({
           </button>
           <button 
             onClick={() => setActiveTab('sites')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'sites' 
                 ? 'bg-[#D05634] text-white shadow-sm' 
                 : 'text-gray-500 hover:text-gray-900'
@@ -8276,18 +8061,8 @@ function AdminView({
             <Globe className="w-4 h-4" /> Sites Pro ({allSites.length})
           </button>
           <button 
-            onClick={() => setActiveTab('seguranca')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
-              activeTab === 'seguranca' 
-                ? 'bg-[#D05634] text-white shadow-sm' 
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <ShieldAlert className="w-4 h-4" /> Segurança & Banimentos ({securityData.bannedIps.length})
-          </button>
-          <button 
             onClick={() => setActiveTab('armazenamento')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'armazenamento' 
                 ? 'bg-[#D05634] text-white shadow-sm' 
                 : 'text-gray-500 hover:text-gray-900'
@@ -8297,7 +8072,7 @@ function AdminView({
           </button>
           <button 
             onClick={() => setActiveTab('planos')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'planos' 
                 ? 'bg-[#D05634] text-white shadow-sm' 
                 : 'text-gray-500 hover:text-gray-900'
@@ -8318,7 +8093,7 @@ function AdminView({
                   type="text" 
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por email, nome ou IP..." 
+                  placeholder="Buscar por email ou nome..." 
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#D05634]/20 focus:border-[#D05634]" 
                 />
               </div>
@@ -8331,7 +8106,6 @@ function AdminView({
                   <option value="all">Todos os Status</option>
                   <option value="active">Apenas Ativos</option>
                   <option value="inactive">Apenas Inativos</option>
-                  <option value="banned">Apenas Banidos (IP)</option>
                 </select>
                 <select 
                   value={roleFilter}
@@ -8377,468 +8151,155 @@ function AdminView({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {filteredUsers.map((u, i) => {
-                      const isUserBanned = u.status === 'Banido' || u.isIpBanned;
-                      return (
-                        <tr key={u.uid || i} className={`group transition-colors ${isUserBanned ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-gray-50/80'}`}>
-                          <td className="py-4 pr-4">
-                            <div className="font-bold text-gray-900">{u.displayName || 'Sem nome informado'}</div>
-                            <div className="text-gray-500 text-xs truncate max-w-xs">{u.email}</div>
-                            <div className="flex flex-wrap items-center gap-2 mt-1">
-                              <span className="text-[10px] text-gray-400 font-mono">{u.collectionsCount || 0} coleções</span>
-                              {u.lastIp && (
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600" title="Último IP registrado">
-                                  IP: {u.lastIp}
-                                </span>
-                              )}
+                    {filteredUsers.map((u, i) => (
+                      <tr key={u.uid || i} className="group hover:bg-gray-50/80 transition-colors">
+                        <td className="py-4 pr-4">
+                          <div className="font-bold text-gray-900">{u.displayName || 'Sem nome informado'}</div>
+                          <div className="text-gray-500 text-xs truncate max-w-xs">{u.email}</div>
+                          <div className="text-[10px] text-gray-400 font-mono mt-0.5">{u.collectionsCount || 0} coleções</div>
+                        </td>
+                        <td className="py-4 pr-4">
+                          {u.sites && u.sites.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {u.sites.map((s: any, sIdx: number) => {
+                                const siteUrl = getPublicSiteUrl(s);
+                                const isCopied = copiedSiteId === s.id;
+                                return (
+                                  <div key={s.id || sIdx} className="flex items-center gap-1.5">
+                                    <a
+                                      href={siteUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FFF0EB] hover:bg-[#ffe4dc] border border-[#D05634]/20 text-[#D05634] text-xs font-bold transition-all truncate max-w-[240px]"
+                                      title={`Abrir site ${s.photographerName || s.title || ''} em nova aba`}
+                                    >
+                                      <Globe className="w-3.5 h-3.5 shrink-0 text-[#D05634]" />
+                                      <span className="truncate">{s.photographerName || s.title || 'Meu Site Pro'}</span>
+                                      <ExternalLink className="w-3 h-3 shrink-0 opacity-70 ml-0.5" />
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(siteUrl);
+                                        setCopiedSiteId(s.id);
+                                        setTimeout(() => setCopiedSiteId(null), 2000);
+                                      }}
+                                      className="p-1 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors shrink-0"
+                                      title="Copiar link direto do site"
+                                    >
+                                      {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
-                          </td>
-                          <td className="py-4 pr-4">
-                            {u.sites && u.sites.length > 0 ? (
-                              <div className="space-y-1.5">
-                                {u.sites.map((s: any, sIdx: number) => {
-                                  const siteUrl = getPublicSiteUrl(s);
-                                  const isCopied = copiedSiteId === s.id;
-                                  return (
-                                    <div key={s.id || sIdx} className="flex items-center gap-1.5">
-                                      <a
-                                        href={siteUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FFF0EB] hover:bg-[#ffe4dc] border border-[#D05634]/20 text-[#D05634] text-xs font-bold transition-all truncate max-w-[240px]"
-                                        title={`Abrir site ${s.photographerName || s.title || ''} em nova aba`}
-                                      >
-                                        <Globe className="w-3.5 h-3.5 shrink-0 text-[#D05634]" />
-                                        <span className="truncate">{s.photographerName || s.title || 'Meu Site Pro'}</span>
-                                        <ExternalLink className="w-3 h-3 shrink-0 opacity-70 ml-0.5" />
-                                      </a>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(siteUrl);
-                                          setCopiedSiteId(s.id);
-                                          setTimeout(() => setCopiedSiteId(null), 2000);
-                                        }}
-                                        className="p-1 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors shrink-0"
-                                        title="Copiar link direto do site"
-                                      >
-                                        {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-100">
-                                <Globe className="w-3 h-3 opacity-40" /> Sem site criado
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-4 pr-4">
-                            {u.role === 'admin' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FFF0EB] text-[#D05634] border border-[#D05634]/20">
-                                <Shield className="w-3 h-3" /> Admin
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600">
-                                Fotógrafo
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-4 pr-4">
-                            <div className="font-medium text-gray-800 text-xs">{u.planName || 'Luz'}</div>
-                            <div className="text-[11px] text-gray-400">Limite: {u.storage.formattedLimit}</div>
-                            {(() => {
-                              const days = getUserDaysRemaining(u);
-                              const isExp = days <= 0;
-                              return (
-                                <div className="mt-1">
-                                  {u.role === 'admin' ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 font-medium">
-                                      <Shield className="w-2.5 h-2.5 text-[#D05634]" /> Admin Ilimitado
-                                    </span>
-                                  ) : (
-                                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                                      isExp 
-                                        ? 'bg-red-50 text-red-600 border border-red-200' 
-                                        : days <= 3 
-                                          ? 'bg-amber-50 text-amber-700 border border-amber-200' 
-                                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                    }`}>
-                                      <Clock className="w-2.5 h-2.5" />
-                                      {isExp ? `Expirado (${Math.abs(days)}d)` : `${days} ${days === 1 ? 'dia rest.' : 'dias rest.'}`}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          <td className="py-4 pr-4">
-                            <div className="flex items-center justify-between text-xs mb-1.5">
-                              <span className="font-medium text-gray-700">
-                                {u.storage.formattedUsed}
-                              </span>
-                              <span className={`font-bold ${u.storage.isOverLimit ? 'text-red-500' : 'text-gray-500'}`}>
-                                {u.storage.formattedPercent}
-                              </span>
-                            </div>
-                            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full rounded-full transition-all duration-500 ${
-                                  u.storage.isOverLimit ? 'bg-red-500' : 'bg-[#D05634]'
-                                }`} 
-                                style={{ width: `${Math.min(100, u.storage.percent)}%` }}
-                              ></div>
-                            </div>
-                          </td>
-                          <td className="py-4 pr-4">
-                            {isUserBanned ? (
-                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 border border-red-200">
-                                Banido (IP)
-                              </span>
-                            ) : (
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                u.status !== 'Inativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                              }`}>
-                                {u.status || 'Ativo'}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {u.primarySite && (
-                                <button 
-                                  onClick={() => window.open(getPublicSiteUrl(u.primarySite), '_blank')}
-                                  title="Visualizar site do usuário"
-                                  className="p-2 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#D05634] text-xs font-semibold transition-colors cursor-pointer"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              {u.role !== 'admin' && (
-                                isUserBanned ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleQuickUnbanTarget({ uid: u.uid, email: u.email, ip: u.lastIp, visitorId: u.visitorId })}
-                                    title="Desbanir Usuário e IP"
-                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-bold transition-colors cursor-pointer"
-                                  >
-                                    Desbanir
-                                  </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-100">
+                              <Globe className="w-3 h-3 opacity-40" /> Sem site criado
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-4 pr-4">
+                          {u.role === 'admin' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FFF0EB] text-[#D05634] border border-[#D05634]/20">
+                              <Shield className="w-3 h-3" /> Admin
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600">
+                              Fotógrafo
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-4 pr-4">
+                          <div className="font-medium text-gray-800 text-xs">{u.planName || 'Luz'}</div>
+                          <div className="text-[11px] text-gray-400">Limite: {u.storage.formattedLimit}</div>
+                          {(() => {
+                            const days = getUserDaysRemaining(u);
+                            const isExp = days <= 0;
+                            return (
+                              <div className="mt-1">
+                                {u.role === 'admin' ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 font-medium">
+                                    <Shield className="w-2.5 h-2.5 text-[#D05634]" /> Admin Ilimitado
+                                  </span>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleQuickBanUser(u)}
-                                    title="Banir Usuário e Bloquear IP/Dispositivo"
-                                    className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-[11px] font-bold transition-colors cursor-pointer"
-                                  >
-                                    Banir IP
-                                  </button>
-                                )
-                              )}
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                    isExp 
+                                      ? 'bg-red-50 text-red-600 border border-red-200' 
+                                      : days <= 3 
+                                        ? 'bg-amber-50 text-amber-700 border border-amber-200' 
+                                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  }`}>
+                                    <Clock className="w-2.5 h-2.5" />
+                                    {isExp ? `Expirado (${Math.abs(days)}d)` : `${days} ${days === 1 ? 'dia rest.' : 'dias rest.'}`}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td className="py-4 pr-4">
+                          <div className="flex items-center justify-between text-xs mb-1.5">
+                            <span className="font-medium text-gray-700">
+                              {u.storage.formattedUsed}
+                            </span>
+                            <span className={`font-bold ${u.storage.isOverLimit ? 'text-red-500' : 'text-gray-500'}`}>
+                              {u.storage.formattedPercent}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                u.storage.isOverLimit ? 'bg-red-500' : 'bg-[#D05634]'
+                              }`} 
+                              style={{ width: `${Math.min(100, u.storage.percent)}%` }}
+                            ></div>
+                          </div>
+                        </td>
+                        <td className="py-4 pr-4">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            u.status !== 'Inativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {u.status || 'Ativo'}
+                          </span>
+                        </td>
+                        <td className="py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {u.primarySite && (
                               <button 
-                                onClick={() => handleToggleAdminRole(u)}
-                                title={u.role === 'admin' ? "Remover privilégio Admin" : "Tornar Admin"}
-                                className={`p-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                                  u.role === 'admin' 
-                                    ? 'bg-[#FFF0EB] text-[#D05634] hover:bg-[#ffe4dc]' 
-                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                }`}
+                                onClick={() => window.open(getPublicSiteUrl(u.primarySite), '_blank')}
+                                title="Visualizar site do usuário"
+                                className="p-2 rounded-lg bg-orange-50 hover:bg-orange-100 text-[#D05634] text-xs font-semibold transition-colors"
                               >
-                                <Shield className="w-3.5 h-3.5" />
+                                <ExternalLink className="w-3.5 h-3.5" />
                               </button>
-                              <button 
-                                onClick={() => setEditingUser({ ...u, storageLimitGB: u.storageLimitGB || 30 })}
-                                className="p-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-semibold transition-colors cursor-pointer"
-                                title="Editar Usuário / Cota"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                            )}
+                            <button 
+                              onClick={() => handleToggleAdminRole(u)}
+                              title={u.role === 'admin' ? "Remover privilégio Admin" : "Tornar Admin"}
+                              className={`p-2 rounded-lg text-xs font-semibold transition-colors ${
+                                u.role === 'admin' 
+                                  ? 'bg-[#FFF0EB] text-[#D05634] hover:bg-[#ffe4dc]' 
+                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              <Shield className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              onClick={() => setEditingUser({ ...u, storageLimitGB: u.storageLimitGB || 30 })}
+                              className="p-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-semibold transition-colors"
+                              title="Editar Usuário / Cota"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             )}
-          </div>
-        )}
-
-        {activeTab === 'seguranca' && (
-          <div className="space-y-8 text-left">
-            {/* Resumo Anti-Fraude */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-red-600">IPs Bloqueados</span>
-                  <ShieldAlert className="w-5 h-5 text-red-500" />
-                </div>
-                <div className="text-3xl font-bold text-gray-900">{securityData.bannedIps.length}</div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Usuários com IP banido recebem tela em branco (HTTP 403) e perdem acesso total ao site.
-                </p>
-              </div>
-
-              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-orange-600">Dispositivos Banidos (Fingerprint)</span>
-                  <Smartphone className="w-5 h-5 text-orange-500" />
-                </div>
-                <div className="text-3xl font-bold text-gray-900">{securityData.bannedDevices.length}</div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Bloqueio por hardware/navegador mesmo que o usuário troque de rede ou use aba anônima.
-                </p>
-              </div>
-
-              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">Domínios Temporários Bloqueados</span>
-                  <Shield className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div className="text-3xl font-bold text-gray-900">
-                  {(securityData.builtInDomainsCount + securityData.customBlockedDomains.length).toLocaleString('pt-BR')}
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Inclui <span className="font-mono font-bold text-gray-800">fldubai.com</span>, 10minutemail, yopmail e +3.700 provedores descartáveis com ban automático.
-                </p>
-              </div>
-            </div>
-
-            {/* Banimento Manual de IP / Dispositivo / E-mail */}
-            <div className="bg-white rounded-3xl p-6 md:p-8 border border-gray-100 shadow-sm">
-              <h3 className="text-lg font-bold text-gray-900 mb-1">Banir IP, Dispositivo ou E-mail Manualmente</h3>
-              <p className="text-xs text-gray-500 mb-6">
-                Adicione um endereço IP, ID de dispositivo (Visitor ID) ou e-mail para bloquear o acesso imediatamente. O site deixará de abrir para o infrator.
-              </p>
-              <form onSubmit={handleManualBanSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Endereço IP</label>
-                  <input
-                    type="text"
-                    value={manualBanIp}
-                    onChange={e => setManualBanIp(e.target.value)}
-                    placeholder="Ex: 191.23.45.67"
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634] font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Device ID (Fingerprint)</label>
-                  <input
-                    type="text"
-                    value={manualBanDevice}
-                    onChange={e => setManualBanDevice(e.target.value)}
-                    placeholder="Ex: fp_8a9f12c3..."
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634] font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">E-mail do Usuário (opcional)</label>
-                  <input
-                    type="text"
-                    value={manualBanEmail}
-                    onChange={e => setManualBanEmail(e.target.value)}
-                    placeholder="usuario@dominio.com"
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Motivo do Bloqueio</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={manualBanReason}
-                      onChange={e => setManualBanReason(e.target.value)}
-                      placeholder="Ex: Conta fake / Abuso"
-                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
-                    />
-                    <button
-                      type="submit"
-                      className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shrink-0 cursor-pointer"
-                    >
-                      Banir
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-
-            {/* Lista de IPs e Dispositivos Banidos */}
-            <div className="bg-white rounded-3xl p-6 md:p-8 border border-gray-100 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">
-                    Lista Negra de IPs e Dispositivos Banidos ({securityData.bannedIps.length + securityData.bannedDevices.length})
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    Todos os bloqueios ficam salvos permanentemente no servidor (<span className="font-mono">data/banned_ips.json</span>) e são respeitados a cada deploy.
-                  </p>
-                </div>
-              </div>
-
-              {securityData.bannedIps.length === 0 && securityData.bannedDevices.length === 0 ? (
-                <div className="py-12 text-center text-gray-400 bg-gray-50/60 rounded-2xl border border-gray-100">
-                  <Shield className="w-10 h-10 mx-auto mb-2 text-emerald-500 opacity-80" />
-                  <p className="text-sm font-bold text-gray-700">Nenhum IP ou dispositivo banido no momento</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Assim que alguém tentar criar conta ou logar com e-mail proibido (ex: @fldubai.com), o IP aparecerá aqui automaticamente.
-                  </p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-gray-500 border-b border-gray-100">
-                        <th className="pb-3 font-medium">Tipo</th>
-                        <th className="pb-3 font-medium">Alvo (IP / Device ID)</th>
-                        <th className="pb-3 font-medium">E-mail Detectado</th>
-                        <th className="pb-3 font-medium">Motivo</th>
-                        <th className="pb-3 font-medium">Data do Banimento</th>
-                        <th className="pb-3 font-medium text-right">Ação</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {[...securityData.bannedIps, ...securityData.bannedDevices].map((ban, idx) => (
-                        <tr key={`${ban.type}_${ban.target}_${idx}`} className="hover:bg-red-50/30">
-                          <td className="py-3.5 pr-4">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                              ban.type === 'ip' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                            }`}>
-                              {ban.type === 'ip' ? 'IP' : 'Dispositivo'}
-                            </span>
-                          </td>
-                          <td className="py-3.5 pr-4 font-mono font-bold text-gray-900 text-xs">
-                            {ban.target}
-                          </td>
-                          <td className="py-3.5 pr-4 text-xs text-gray-600">
-                            {ban.email || '—'}
-                          </td>
-                          <td className="py-3.5 pr-4 text-xs text-gray-700 max-w-md">
-                            {ban.reason}
-                          </td>
-                          <td className="py-3.5 pr-4 text-xs text-gray-500 whitespace-nowrap">
-                            {ban.bannedAt ? new Date(ban.bannedAt).toLocaleString('pt-BR') : '—'}
-                          </td>
-                          <td className="py-3.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleQuickUnbanTarget(
-                                  ban.type === 'ip'
-                                    ? { ip: ban.target, email: ban.email, uid: ban.uid }
-                                    : { visitorId: ban.target, email: ban.email, uid: ban.uid }
-                                )
-                              }
-                              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-colors cursor-pointer"
-                            >
-                              Desbanir
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Gerenciador de Domínios de E-mail Proibidos */}
-            <div className="bg-white rounded-3xl p-6 md:p-8 border border-gray-100 shadow-sm space-y-6">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">Domínios de E-mail Bloqueados (Ban Instantâneo por IP)</h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Qualquer tentativa de cadastro ou login usando estes domínios (ou subdomínios) resulta em bloqueio imediato do IP e do dispositivo.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Adicionar novo domínio */}
-                <div className="p-5 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
-                  <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
-                    Adicionar Domínio Proibido Extra
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newBlockedDomain}
-                      onChange={e => setNewBlockedDomain(e.target.value)}
-                      placeholder="Ex: fldubai.com ou spamdomain.net"
-                      className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634] font-mono"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleDomainAction('add', newBlockedDomain)}
-                      className="px-4 py-2.5 bg-[#D05634] hover:bg-[#b84a2b] text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shrink-0 cursor-pointer"
-                    >
-                      Bloquear Domínio
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 pt-2">
-                    {securityData.customBlockedDomains.map(dom => (
-                      <span
-                        key={dom}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200 text-xs font-mono font-bold"
-                      >
-                        @{dom}
-                        <button
-                          type="button"
-                          onClick={() => handleDomainAction('remove', dom)}
-                          className="hover:text-red-900 cursor-pointer"
-                          title="Remover domínio customizado"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Testador de E-mail / Domínio */}
-                <div className="p-5 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
-                  <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
-                    Verificar se E-mail ou Domínio está na Lista Negra
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={testEmailInput}
-                      onChange={e => {
-                        setTestEmailInput(e.target.value);
-                        setTestEmailResult(
-                          e.target.value.trim()
-                            ? isDisposableEmailDomain(e.target.value, securityData.customBlockedDomains)
-                            : null
-                        );
-                      }}
-                      placeholder="Digite ex: usuario@fldubai.com"
-                      className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#D05634]"
-                    />
-                  </div>
-                  {testEmailResult && (
-                    <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                      testEmailResult.blocked
-                        ? 'bg-red-100 text-red-800 border border-red-200'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                    }`}>
-                      {testEmailResult.blocked ? (
-                        <>
-                          <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
-                          <span>
-                            BLOQUEADO! O domínio @{testEmailResult.matchedDomain} causará banimento instantâneo de IP e dispositivo.
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span>Domínio permitido (não consta na lista de e-mails descartáveis).</span>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
@@ -9330,17 +8791,8 @@ function AdminView({
                     >
                       <option value="Ativo">Ativo</option>
                       <option value="Inativo">Inativo</option>
-                      <option value="Banido">Banido (Bloquear IP e Dispositivo)</option>
                     </select>
                   </div>
-
-                  {(editingUser.lastIp || editingUser.visitorId) && (
-                    <div className="p-3.5 rounded-2xl bg-gray-50 border border-gray-200/80 text-xs space-y-1">
-                      <div className="font-bold text-gray-700">Dados de Rede / Dispositivo do Usuário:</div>
-                      {editingUser.lastIp && <div className="font-mono text-gray-600">Último IP: {editingUser.lastIp}</div>}
-                      {editingUser.visitorId && <div className="font-mono text-gray-600">Device ID: {editingUser.visitorId}</div>}
-                    </div>
-                  )}
                 </form>
               </div>
 
