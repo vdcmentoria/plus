@@ -27,7 +27,8 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && request.auth.token.email_verified == true && (
         request.auth.token.email == 'isabelefelipefotografias@gmail.com' ||
-        request.auth.token.email == 'felipemachadophotography@gmail.com'
+        request.auth.token.email == 'felipemachadophotography@gmail.com' ||
+        request.auth.token.email == 'mariaisabelsocial@gmail.com'
       );
     }
 

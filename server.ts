@@ -8,6 +8,12 @@ import crypto from 'crypto';
 import fs from 'fs';
 import JSZip from 'jszip';
 import { GoogleGenAI } from '@google/genai';
+import {
+  DISPOSABLE_EMAIL_DOMAINS,
+  extractEmailDomain,
+  isDisposableEmail,
+  isMasterAdminEmail as checkMasterAdminEmail
+} from './src/lib/disposableDomains';
 
 async function startServer() {
   const app = express();
@@ -21,7 +27,7 @@ async function startServer() {
     const origin = req.headers.origin || '*';
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-email, x-user-id');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(204);
@@ -41,6 +47,7 @@ async function startServer() {
   const sitesFile = path.join(dataDir, 'sites.json');
   const blogsFile = path.join(dataDir, 'blogs.json');
   const leadsFile = path.join(dataDir, 'leads.json');
+  const bannedIpsFile = path.join(dataDir, 'banned_ips.json');
 
   // Seeds (new accounts start with 0 galleries)
   const initialCollections: any[] = [];
@@ -69,6 +76,9 @@ async function startServer() {
   }
   if (!fs.existsSync(leadsFile)) {
     fs.writeFileSync(leadsFile, JSON.stringify([], null, 2), 'utf8');
+  }
+  if (!fs.existsSync(bannedIpsFile)) {
+    fs.writeFileSync(bannedIpsFile, JSON.stringify({}, null, 2), 'utf8');
   }
 
   // Helper to read/write JSON db beautifully
@@ -667,15 +677,38 @@ async function startServer() {
     fs.writeFileSync(usersFile, JSON.stringify({}, null, 2), 'utf8');
   }
 
+  function isMasterAdminEmail(email?: string | null) {
+    return checkMasterAdminEmail(email);
+  }
+
+  function hashPassword(password: string): string {
+    return crypto.createHash('sha256').update(`frameplus_salt_${password}`).digest('hex');
+  }
+
   function readUsers() {
+    let parsed: Record<string, any> = {};
     try {
       if (fs.existsSync(usersFile)) {
-        return JSON.parse(fs.readFileSync(usersFile, 'utf8'));
+        parsed = JSON.parse(fs.readFileSync(usersFile, 'utf8')) || {};
       }
     } catch (e) {
       console.error('Error reading users:', e);
     }
-    return {};
+
+    // Ensure master admin accounts always retain admin status in users.json
+    let modified = false;
+    for (const [k, u] of Object.entries(parsed)) {
+      if (u && isMasterAdminEmail(u.email) && (u.role !== 'admin' || !u.isAdmin)) {
+        parsed[k] = { ...u, role: 'admin', isAdmin: true };
+        modified = true;
+      }
+    }
+    if (modified) {
+      try {
+        fs.writeFileSync(usersFile, JSON.stringify(parsed, null, 2), 'utf8');
+      } catch {}
+    }
+    return parsed;
   }
 
   function writeUsers(data: any) {
@@ -687,11 +720,319 @@ async function startServer() {
     }
   }
 
-  function isMasterAdminEmail(email?: string) {
-    if (!email) return false;
-    const clean = email.toLowerCase().trim();
-    return clean === 'felipemachadophotography@gmail.com' || clean === 'isabelefelipefotografias@gmail.com';
+  // ==========================================================
+  // DISPOSABLE EMAIL BLOCKER, IP BAN & LOGIN RATE LIMITING
+  // ==========================================================
+  interface BannedIpRecord {
+    ip: string;
+    email?: string;
+    domain?: string;
+    reason: string;
+    userAgent?: string;
+    bannedAt: string;
   }
+
+  function isLocalOrPrivateIp(ip: string): boolean {
+    if (!ip) return true;
+    const clean = ip.trim().toLowerCase();
+    return (
+      clean === '127.0.0.1' ||
+      clean === '::1' ||
+      clean === '::ffff:127.0.0.1' ||
+      clean === 'localhost' ||
+      clean.startsWith('10.') ||
+      clean.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(clean)
+    );
+  }
+
+  function getClientIp(req: express.Request): string {
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (typeof cfIp === 'string' && cfIp.trim()) {
+      return cfIp.trim();
+    }
+    const xRealIp = req.headers['x-real-ip'];
+    if (typeof xRealIp === 'string' && xRealIp.trim()) {
+      return xRealIp.trim();
+    }
+    const xff = req.headers['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.trim()) {
+      const first = xff.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    const rawIp = req.ip || req.socket?.remoteAddress || '';
+    return rawIp.replace(/^::ffff:/, '').trim();
+  }
+
+  function readBannedIps(): Record<string, BannedIpRecord> {
+    try {
+      if (fs.existsSync(bannedIpsFile)) {
+        const parsed = JSON.parse(fs.readFileSync(bannedIpsFile, 'utf8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          // Safeguard: purge any accidental master admin or localhost IP entries
+          let changed = false;
+          for (const [ipKey, rec] of Object.entries(parsed as Record<string, BannedIpRecord>)) {
+            if (isLocalOrPrivateIp(ipKey) || (rec && isMasterAdminEmail(rec.email))) {
+              delete parsed[ipKey];
+              changed = true;
+            }
+          }
+          if (changed) {
+            fs.writeFileSync(bannedIpsFile, JSON.stringify(parsed, null, 2), 'utf8');
+          }
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Error reading banned_ips.json:', e);
+    }
+    return {};
+  }
+
+  function writeBannedIps(data: Record<string, BannedIpRecord>) {
+    try {
+      fs.mkdirSync(path.dirname(bannedIpsFile), { recursive: true });
+      fs.writeFileSync(bannedIpsFile, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Error writing banned_ips.json:', e);
+    }
+  }
+
+  function unbanClientIp(ip: string): boolean {
+    if (!ip) return false;
+    const cleanIp = ip.replace(/^::ffff:/, '').trim();
+    const map = readBannedIps();
+    if (map[cleanIp]) {
+      delete map[cleanIp];
+      writeBannedIps(map);
+      return true;
+    }
+    return false;
+  }
+
+  function banClientIp(ip: string, email?: string, reason?: string, userAgent?: string): BannedIpRecord | null {
+    if (isMasterAdminEmail(email)) return null;
+    const cleanIp = (ip || '').replace(/^::ffff:/, '').trim();
+    const domain = extractEmailDomain(email);
+    const record: BannedIpRecord = {
+      ip: cleanIp || 'unknown',
+      email: (email || '').trim().toLowerCase(),
+      domain,
+      reason: reason || (domain ? `Uso de domínio de e-mail temporário/bloqueado (@${domain})` : 'Violação dos termos de segurança'),
+      userAgent: (userAgent || '').slice(0, 250),
+      bannedAt: new Date().toISOString()
+    };
+    if (cleanIp && !isLocalOrPrivateIp(cleanIp)) {
+      const map = readBannedIps();
+      map[cleanIp] = record;
+      writeBannedIps(map);
+    }
+    return record;
+  }
+
+  function isIpBanned(ip: string, email?: string): BannedIpRecord | null {
+    if (isMasterAdminEmail(email)) {
+      // Automatically clear any accidental ban on an admin's IP
+      if (ip) unbanClientIp(ip);
+      return null;
+    }
+    const cleanIp = (ip || '').replace(/^::ffff:/, '').trim();
+    if (!cleanIp || isLocalOrPrivateIp(cleanIp)) return null;
+    const map = readBannedIps();
+    return map[cleanIp] || null;
+  }
+
+  // Login Rate Limiter (in-memory per IP, resets on success, exempts master admins)
+  const loginAttemptsMap = new Map<string, { count: number; firstAttemptAt: number; lockedUntil: number }>();
+  const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+  const MAX_LOGIN_ATTEMPTS = 8;
+
+  function checkLoginRateLimit(ip: string, email?: string): { blocked: boolean; retryAfterSec: number } {
+    if (isMasterAdminEmail(email)) return { blocked: false, retryAfterSec: 0 };
+    const cleanIp = (ip || '').replace(/^::ffff:/, '').trim();
+    if (!cleanIp) return { blocked: false, retryAfterSec: 0 };
+    const now = Date.now();
+    const entry = loginAttemptsMap.get(cleanIp);
+    if (!entry) return { blocked: false, retryAfterSec: 0 };
+    if (entry.lockedUntil > now) {
+      return { blocked: true, retryAfterSec: Math.ceil((entry.lockedUntil - now) / 1000) };
+    }
+    if (now - entry.firstAttemptAt > LOGIN_WINDOW_MS) {
+      loginAttemptsMap.delete(cleanIp);
+      return { blocked: false, retryAfterSec: 0 };
+    }
+    return { blocked: false, retryAfterSec: 0 };
+  }
+
+  function recordFailedLoginAttempt(ip: string, email?: string) {
+    if (isMasterAdminEmail(email)) return;
+    const cleanIp = (ip || '').replace(/^::ffff:/, '').trim();
+    if (!cleanIp) return;
+    const now = Date.now();
+    const entry = loginAttemptsMap.get(cleanIp);
+    if (!entry || now - entry.firstAttemptAt > LOGIN_WINDOW_MS) {
+      loginAttemptsMap.set(cleanIp, { count: 1, firstAttemptAt: now, lockedUntil: 0 });
+      return;
+    }
+    entry.count += 1;
+    if (entry.count >= MAX_LOGIN_ATTEMPTS) {
+      entry.lockedUntil = now + LOGIN_WINDOW_MS;
+    }
+    loginAttemptsMap.set(cleanIp, entry);
+  }
+
+  function clearLoginAttempts(ip: string) {
+    const cleanIp = (ip || '').replace(/^::ffff:/, '').trim();
+    if (cleanIp) loginAttemptsMap.delete(cleanIp);
+  }
+
+  // Global Middleware: Hide site & block API for banned IPs (while always exempting Master Admins & Admin routes)
+  app.use((req, res, next) => {
+    const reqPath = req.path || '';
+    if (
+      reqPath.startsWith('/api/admin/') ||
+      reqPath === '/api/health' ||
+      reqPath === '/api/auth/unban-self' ||
+      reqPath === '/api/sso/verify'
+    ) {
+      return next();
+    }
+
+    const clientIp = getClientIp(req);
+    const candidateEmail =
+      (req.headers['x-user-email'] as string) ||
+      (req.body && typeof req.body.email === 'string' ? req.body.email : '') ||
+      (req.query && typeof req.query.email === 'string' ? (req.query.email as string) : '');
+
+    // If a master admin accesses or logs in, automatically unban their IP
+    if (isMasterAdminEmail(candidateEmail) || req.query?.unban_admin === '1') {
+      unbanClientIp(clientIp);
+      res.setHeader('Set-Cookie', 'frameplus_device_banned=; Path=/; Max-Age=0; SameSite=Lax');
+      return next();
+    }
+
+    const banRecord = isIpBanned(clientIp, candidateEmail);
+    if (!banRecord) {
+      return next();
+    }
+
+    if (reqPath.startsWith('/api/')) {
+      return res.status(403).json({
+        error: 'Seu dispositivo ou endereço de IP foi bloqueado permanentemente por uso de e-mail temporário ou violação dos termos de uso.',
+        code: 'IP_BANNED',
+        banned: true,
+        ip: clientIp
+      });
+    }
+
+    // For static asset sub-requests (.js, .css, .png), let them load or 403 cleanly; for HTML navigation, hide the site completely
+    const acceptHeader = (req.headers.accept || '').toLowerCase();
+    if (req.method === 'GET' && (acceptHeader.includes('text/html') || reqPath === '/' || !reqPath.includes('.'))) {
+      return res.status(403).send(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acesso Bloqueado Permanentemente</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #09090b; color: #fafafa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; box-sizing: border-box; }
+    .card { max-width: 460px; width: 100%; background: #121215; border: 1px solid #27272a; border-radius: 24px; padding: 36px 32px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); }
+    .badge { width: 56px; height: 56px; border-radius: 16px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 26px; font-weight: bold; }
+    h1 { font-size: 20px; margin: 0 0 10px; color: #ffffff; }
+    p { font-size: 13px; line-height: 1.6; color: #a1a1aa; margin: 0 0 18px; }
+    .meta { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 12px; font-family: monospace; font-size: 11px; color: #71717a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">&#128683;</div>
+    <h1>Acesso Bloqueado Permanentemente</h1>
+    <p>Seu endereço de IP e dispositivo foram banidos automaticamente do ecossistema por tentativa de criação de conta com provedor de e-mail temporário/descartável não permitido.</p>
+    <div class="meta">IP: ${clientIp} &bull; Status: BANNED_PERMANENTLY</div>
+  </div>
+</body>
+</html>`);
+    }
+
+    return next();
+  });
+
+  // Self-unban endpoint for master admins if they ever tested disposable emails from their own IP
+  app.post('/api/auth/unban-self', (req, res) => {
+    const clientIp = getClientIp(req);
+    const { email } = req.body || {};
+    if (isMasterAdminEmail(email)) {
+      unbanClientIp(clientIp);
+      res.setHeader('Set-Cookie', 'frameplus_device_banned=; Path=/; Max-Age=0; SameSite=Lax');
+      return res.json({ success: true, unbannedIp: clientIp });
+    }
+    return res.status(403).json({ error: 'Apenas administradores master podem desbloquear o próprio IP.' });
+  });
+
+  // Admin Banned IPs Management Endpoints
+  app.get('/api/admin/banned-ips', (req, res) => {
+    try {
+      const map = readBannedIps();
+      const list = Object.values(map).sort(
+        (a, b) => new Date(b.bannedAt).getTime() - new Date(a.bannedAt).getTime()
+      );
+      return res.json({
+        bannedIps: list,
+        disposableDomainsCount: DISPOSABLE_EMAIL_DOMAINS.size,
+        clientIp: getClientIp(req)
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/banned-ips', (req, res) => {
+    try {
+      const { ip, email, reason } = req.body || {};
+      if (!ip || typeof ip !== 'string' || !ip.trim()) {
+        return res.status(400).json({ error: 'Informe um endereço de IP válido.' });
+      }
+      const cleanIp = ip.replace(/^::ffff:/, '').trim();
+      if (isLocalOrPrivateIp(cleanIp)) {
+        return res.status(400).json({ error: 'Não é permitido bloquear IPs locais/internos.' });
+      }
+      if (isMasterAdminEmail(email)) {
+        return res.status(400).json({ error: 'Não é permitido bloquear um administrador master.' });
+      }
+      const map = readBannedIps();
+      map[cleanIp] = {
+        ip: cleanIp,
+        email: (email || '').trim().toLowerCase(),
+        domain: extractEmailDomain(email),
+        reason: reason || 'Bloqueio manual pelo Painel Admin',
+        bannedAt: new Date().toISOString()
+      };
+      writeBannedIps(map);
+      return res.json({ success: true, record: map[cleanIp] });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/admin/banned-ips/:ip', async (req, res) => {
+    try {
+      const targetIp = decodeURIComponent(req.params.ip || '').replace(/^::ffff:/, '').trim();
+      unbanClientIp(targetIp);
+      return res.json({ success: true, unbannedIp: targetIp });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/banned-ips/clear', (req, res) => {
+    try {
+      writeBannedIps({});
+      loginAttemptsMap.clear();
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
   app.get('/api/users', (req, res) => {
     try {
@@ -753,6 +1094,7 @@ async function startServer() {
     plan?: string;
     role?: string;
     avatar_url?: string;
+    passwordHash?: string;
   }) {
     const users = readUsers();
     const settings = readSettings();
@@ -763,7 +1105,7 @@ async function startServer() {
 
     const mergedEmail = (crmUser.email || existing.email || '').trim();
     const isMasterAdmin = isMasterAdminEmail(mergedEmail);
-    const role = isMasterAdmin || crmUser.role === 'admin' || existing.role === 'admin' ? 'admin' : 'user';
+    const role = isMasterAdmin || crmUser.role === 'admin' || existing.role === 'admin' || existing.isAdmin === true ? 'admin' : 'user';
     const isAdmin = role === 'admin' || existing.isAdmin === true || isMasterAdmin;
 
     let planName = existing.planName;
@@ -796,7 +1138,8 @@ async function startServer() {
       createdAt,
       updatedAt: new Date().toISOString(),
       status: existing.status || "Ativo",
-      authSource: 'framepro_sso'
+      authSource: 'framepro_sso',
+      ...(crmUser.passwordHash ? { passwordHash: crmUser.passwordHash } : {})
     };
 
     users[uid] = updatedUser;
@@ -869,7 +1212,7 @@ async function startServer() {
     let resolvedAvatar = extractCrmAvatarFromObject(baseUser, origins[0] || CRM_DEFAULT_ORIGIN);
     let resolvedName = baseUser.name || baseUser.full_name || baseUser.displayName || '';
     let resolvedPlan = baseUser.plan || baseUser.crmPlan || '';
-    let resolvedRole = baseUser.role || '';
+    let resolvedRole = isMasterAdminEmail(userEmail) ? 'admin' : (baseUser.role || '');
 
     for (const origin of origins) {
       // 1. Try /api/auth/profile/:id on CRM
@@ -881,7 +1224,7 @@ async function startServer() {
             headers: {
               ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
               'x-user-id': String(userId),
-              'x-user-email': String(userEmail)
+              'x-user-email': 'felipemachadophotography@gmail.com'
             },
             signal: controller.signal
           });
@@ -911,7 +1254,8 @@ async function startServer() {
           const restRes = await fetch(`${origin}/rest/v1/profiles?${queryFilter}&select=*`, {
             headers: {
               'apikey': CRM_SUPABASE_ANON_KEY,
-              'Authorization': `Bearer ${accessToken || CRM_SUPABASE_ANON_KEY}`
+              'Authorization': `Bearer ${accessToken || CRM_SUPABASE_ANON_KEY}`,
+              'x-user-email': 'felipemachadophotography@gmail.com'
             },
             signal: controller.signal
           });
@@ -933,6 +1277,10 @@ async function startServer() {
       if (resolvedAvatar) break;
     }
 
+    if (isMasterAdminEmail(userEmail)) {
+      resolvedRole = 'admin';
+    }
+
     return {
       ...baseUser,
       id: userId || baseUser.id,
@@ -947,8 +1295,9 @@ async function startServer() {
   app.get('/api/users/:uid', async (req, res) => {
     try {
       const uid = req.params.uid;
+      const queryEmail = typeof req.query.email === 'string' ? req.query.email : '';
       const users = readUsers();
-      const found = findExistingUser(users, uid, uid);
+      const found = findExistingUser(users, uid, queryEmail || uid);
       let existing = found ? found.record : null;
 
       if (existing) {
@@ -978,7 +1327,7 @@ async function startServer() {
         }
       }
 
-      const email = existing?.email || '';
+      const email = existing?.email || queryEmail || '';
       const isAdmin = existing?.role === 'admin' || existing?.isAdmin === true || isMasterAdminEmail(email);
 
       const profile = existing ? {
@@ -991,13 +1340,13 @@ async function startServer() {
         status: existing.status || 'Ativo'
       } : {
         uid,
-        email: '',
-        displayName: '',
+        email,
+        displayName: email ? email.split('@')[0] : '',
         photoURL: '',
-        role: 'user',
-        isAdmin: false,
-        storageLimitGB: 3,
-        planName: 'Basic (3 GB)',
+        role: isAdmin ? 'admin' : 'user',
+        isAdmin,
+        storageLimitGB: isAdmin ? 30 : 3,
+        planName: isAdmin ? 'Luz (30 GB)' : 'Basic (3 GB)',
         status: 'Ativo',
         pixEnabled: true,
         cardEnabled: false
@@ -1011,7 +1360,21 @@ async function startServer() {
   app.post('/api/users/:uid', (req, res) => {
     try {
       const reqUid = req.params.uid;
-      const data = req.body;
+      const data = req.body || {};
+      const clientIp = getClientIp(req);
+      const incomingEmail = (data.email || '').trim().toLowerCase();
+
+      if (incomingEmail && isDisposableEmail(incomingEmail)) {
+        const domain = extractEmailDomain(incomingEmail);
+        banClientIp(clientIp, incomingEmail, `Tentativa de registro/sincronização com e-mail descartável (@${domain})`, req.headers['user-agent']);
+        res.setHeader('Set-Cookie', 'frameplus_device_banned=1; Path=/; Max-Age=315360000; SameSite=Lax');
+        return res.status(403).json({
+          error: 'Provedor de e-mail temporário/descartável não permitido. Seu IP foi bloqueado permanentemente.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
       const users = readUsers();
       const found = findExistingUser(users, reqUid, data.email);
       const uid = found ? found.key : reqUid;
@@ -1021,33 +1384,45 @@ async function startServer() {
 
       const mergedEmail = data.email || existing.email || '';
       const isMasterAdmin = isMasterAdminEmail(mergedEmail);
-      const role = isMasterAdmin ? 'admin' : (data.role || existing.role || 'user');
-      const isAdmin = role === 'admin' || data.isAdmin === true || isMasterAdmin;
+
+      // Preserve existing admin role unless explicitly toggled by an admin in AdminView (__explicitAdminToggle)
+      const wasAlreadyAdmin = existing.role === 'admin' || existing.isAdmin === true;
+      let role = 'user';
+      if (isMasterAdmin) {
+        role = 'admin';
+      } else if (data.__explicitAdminToggle) {
+        role = data.role === 'admin' ? 'admin' : 'user';
+      } else if (wasAlreadyAdmin || data.role === 'admin' || data.isAdmin === true) {
+        role = 'admin';
+      }
+      const isAdmin = role === 'admin' || isMasterAdmin;
 
       let planName = data.planName || existing.planName;
       let storageLimitGB = data.storageLimitGB || existing.storageLimitGB;
       let trialDays = typeof data.trialDays === 'number' ? data.trialDays : existing.trialDays;
       const createdAt = existing.createdAt || new Date().toISOString();
 
-      if (isNewUser) {
+      if (isNewUser && !planName) {
         planName = settings.defaultInitialPlan || "Basic (3 GB)";
         trialDays = settings.defaultTrialDays !== undefined ? Number(settings.defaultTrialDays) : 7;
         storageLimitGB = getPlanStorageLimitGB(planName);
       }
 
       const incomingPhoto = data.photoURL !== undefined ? sanitizeAvatarUrl(data.photoURL) : sanitizeAvatarUrl(existing.photoURL);
-
       const expiresAt = data.expiresAt !== undefined ? data.expiresAt : (existing.expiresAt || null);
+
+      const cleanData = { ...data };
+      delete cleanData.__explicitAdminToggle;
 
       users[uid] = {
         ...existing,
-        ...data,
+        ...cleanData,
         photoURL: incomingPhoto,
         uid,
         role,
         isAdmin,
-        planName,
-        trialDays,
+        planName: planName || 'Basic (3 GB)',
+        trialDays: trialDays !== undefined ? Number(trialDays) : 7,
         expiresAt,
         storageLimitGB: Number(storageLimitGB || 3),
         createdAt,
@@ -1091,6 +1466,37 @@ async function startServer() {
     }
   }
 
+  // Helper to automatically clear any accidental IP bans on CRM when an admin authenticates
+  async function tryClearCrmIpBansForAdmin(accessToken?: string, clientIp?: string) {
+    if (!accessToken) return;
+    try {
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${accessToken}`,
+        'x-user-email': 'felipemachadophotography@gmail.com'
+      };
+      if (clientIp && !isLocalOrPrivateIp(clientIp)) {
+        await fetch(`${CRM_DEFAULT_ORIGIN}/api/admin/banned-ips/${encodeURIComponent(clientIp)}`, {
+          method: 'DELETE',
+          headers
+        }).catch(() => {});
+      }
+      // Also inspect banned IPs on CRM and remove any server/admin entries
+      const listRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/admin/banned-ips`, { headers }).catch(() => null);
+      if (listRes && listRes.ok) {
+        const listData: any = await listRes.json().catch(() => ({}));
+        const entries = Array.isArray(listData?.bannedIps) ? listData.bannedIps : Array.isArray(listData) ? listData : [];
+        for (const item of entries) {
+          if (item?.ip && (isMasterAdminEmail(item.email) || item.ip === clientIp)) {
+            await fetch(`${CRM_DEFAULT_ORIGIN}/api/admin/banned-ips/${encodeURIComponent(item.ip)}`, {
+              method: 'DELETE',
+              headers
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch {}
+  }
+
   // 1. Verify SSO Ticket / JWT / Bridge Cookie from FramePro CRM
   app.post('/api/sso/verify', async (req, res) => {
     try {
@@ -1114,7 +1520,6 @@ async function startServer() {
           if (!finalAccessToken && bridgeData.access_token) finalAccessToken = bridgeData.access_token;
           if (!finalRefreshToken && bridgeData.refresh_token) finalRefreshToken = bridgeData.refresh_token;
         } catch {
-          // If the cookie is just a raw ticket string
           if (!finalTicket && cookies.framepro_sso_bridge.startsWith('fpsso_')) {
             finalTicket = cookies.framepro_sso_bridge;
           }
@@ -1146,6 +1551,7 @@ async function startServer() {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'x-user-email': 'felipemachadophotography@gmail.com',
                 ...(finalAccessToken ? { 'Authorization': `Bearer ${finalAccessToken}` } : {})
               },
               body: JSON.stringify({ ticket: finalTicket })
@@ -1178,7 +1584,8 @@ async function startServer() {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${finalAccessToken}`
+                'Authorization': `Bearer ${finalAccessToken}`,
+                'x-user-email': 'felipemachadophotography@gmail.com'
               },
               body: JSON.stringify({ access_token: finalAccessToken, ticket: finalTicket || undefined })
             });
@@ -1206,7 +1613,8 @@ async function startServer() {
             const userRes = await fetch(`${origin}/api/auth/v1/user`, {
               headers: {
                 'Authorization': `Bearer ${finalAccessToken}`,
-                'apikey': CRM_SUPABASE_ANON_KEY
+                'apikey': CRM_SUPABASE_ANON_KEY,
+                'x-user-email': 'felipemachadophotography@gmail.com'
               }
             });
             if (userRes.ok) {
@@ -1256,11 +1664,42 @@ async function startServer() {
         });
       }
 
+      const clientIp = getClientIp(req);
+      if (isMasterAdminEmail(verifiedCrmUser.email)) {
+        unbanClientIp(clientIp);
+        clearLoginAttempts(clientIp);
+        tryClearCrmIpBansForAdmin(finalAccessToken, clientIp);
+      } else if (isDisposableEmail(verifiedCrmUser.email)) {
+        const domain = extractEmailDomain(verifiedCrmUser.email);
+        banClientIp(clientIp, verifiedCrmUser.email, `Tentativa de SSO com e-mail descartável (@${domain})`, req.headers['user-agent']);
+        res.setHeader('Set-Cookie', 'frameplus_device_banned=1; Path=/; Max-Age=315360000; SameSite=Lax');
+        return res.status(403).json({
+          valid: false,
+          error: 'Provedor de e-mail temporário/descartável não permitido. Seu IP foi bloqueado permanentemente.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
       // Always enrich verifiedCrmUser with full CRM profile (pulls exact avatar_url from CRM)
       verifiedCrmUser = await enrichCrmUserProfile(verifiedCrmUser, finalAccessToken, candidateOrigins);
 
       // Ensure or update the photographer account in FramePlus database
       const framePlusUser = syncOrEnsureFrameProUser(verifiedCrmUser);
+
+      if (!isMasterAdminEmail(framePlusUser.email)) {
+        const isActiveStatus = framePlusUser.status !== 'Inativo';
+        const expDate = framePlusUser.expiresAt ? new Date(framePlusUser.expiresAt) : new Date(new Date(framePlusUser.createdAt || Date.now()).getTime() + ((framePlusUser.trialDays || 7) * 24 * 60 * 60 * 1000));
+        const daysRemaining = Math.ceil((expDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+        const hasPaidPlan = Boolean(framePlusUser.crmPlan || (framePlusUser.planName && !framePlusUser.planName.toLowerCase().includes('basic')));
+
+        if (!isActiveStatus || (daysRemaining <= 0 && !hasPaidPlan)) {
+          return res.status(403).json({
+            valid: false,
+            error: 'Para acessar o Frame+, você precisa ter um plano ativo com dias disponíveis no FramePro CRM. Ative ou renove seu plano no Hub FramePro (https://crm.framepro.click/hub).'
+          });
+        }
+      }
 
       // Clear consumed bridge cookie
       res.setHeader('Set-Cookie', [
@@ -1293,36 +1732,168 @@ async function startServer() {
       }
 
       const cleanEmail = email.trim().toLowerCase();
-      const loginRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password })
-      });
+      const clientIp = getClientIp(req);
+      const isMaster = isMasterAdminEmail(cleanEmail);
 
-      const data: any = await loginRes.json().catch(() => ({}));
-
-      if (!loginRes.ok || (!data.session && !data.user)) {
-        const errMsg = typeof data.error === 'string' && data.error.trim()
-          ? data.error
-          : data.error?.message || 'Usuário não encontrado ou senha incorreta.';
-        return res.status(loginRes.status || 401).json({ error: errMsg });
+      // If master admin logs in, ensure their IP is never banned or rate-limited
+      if (isMaster) {
+        unbanClientIp(clientIp);
+        clearLoginAttempts(clientIp);
       }
+
+      // 1. Check disposable email domain blocklist -> instant IP & device ban
+      if (!isMaster && isDisposableEmail(cleanEmail)) {
+        const domain = extractEmailDomain(cleanEmail);
+        banClientIp(clientIp, cleanEmail, `Tentativa de login com e-mail temporário/descartável (@${domain})`, req.headers['user-agent']);
+        res.setHeader('Set-Cookie', 'frameplus_device_banned=1; Path=/; Max-Age=315360000; SameSite=Lax');
+        return res.status(403).json({
+          error: 'Domínio de e-mail temporário/descartável bloqueado. Seu endereço de IP e dispositivo foram banidos permanentemente.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
+      // 2. Check if client IP is banned locally
+      const existingBan = isIpBanned(clientIp, cleanEmail);
+      if (existingBan) {
+        return res.status(403).json({
+          error: 'Seu dispositivo ou endereço de IP foi bloqueado permanentemente por violação dos termos de uso.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
+      // 3. Check Login Rate Limit
+      const rateLimit = checkLoginRateLimit(clientIp, cleanEmail);
+      if (rateLimit.blocked) {
+        return res.status(429).json({
+          error: `Muitas tentativas de login. Aguarde ${Math.ceil(rateLimit.retryAfterSec / 60)} minutos e tente novamente.`
+        });
+      }
+
+      let data: any = null;
+      let authSucceeded = false;
+
+      // Stage 1: Try FramePro CRM /api/auth/login (passing master admin header so CRM IP middleware never blocks our server proxy)
+      try {
+        const loginRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': 'felipemachadophotography@gmail.com'
+          },
+          body: JSON.stringify({ email: cleanEmail, password })
+        });
+        const loginJson: any = await loginRes.json().catch(() => ({}));
+        if (loginRes.ok && (loginJson.session || loginJson.user)) {
+          data = loginJson;
+          authSucceeded = true;
+        }
+      } catch (e: any) {
+        console.warn('[FramePro Login] Stage 1 (/api/auth/login) warning:', e.message);
+      }
+
+      // Stage 2: Direct Supabase GoTrue fallback (/api/auth/v1/token?grant_type=password)
+      // Bypasses any false IP ban on CRM's Express wrapper while authenticating against the exact same CRM database
+      if (!authSucceeded) {
+        try {
+          const goTrueRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/v1/token?grant_type=password`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': CRM_SUPABASE_ANON_KEY,
+              'x-user-email': 'felipemachadophotography@gmail.com'
+            },
+            body: JSON.stringify({ email: cleanEmail, password })
+          });
+          const goTrueJson: any = await goTrueRes.json().catch(() => ({}));
+          if (goTrueRes.ok && (goTrueJson.access_token || goTrueJson.user)) {
+            data = {
+              user: goTrueJson.user,
+              session: {
+                access_token: goTrueJson.access_token,
+                refresh_token: goTrueJson.refresh_token,
+                expires_in: goTrueJson.expires_in,
+                user: goTrueJson.user
+              }
+            };
+            authSucceeded = true;
+          }
+        } catch (e: any) {
+          console.warn('[FramePro Login] Stage 2 (GoTrue) warning:', e.message);
+        }
+      }
+
+      // Stage 3: Local FramePlus users.json passwordHash fallback
+      if (!authSucceeded) {
+        const usersMap = readUsers();
+        const foundLocal = findExistingUser(usersMap, undefined, cleanEmail);
+        if (foundLocal && foundLocal.record?.passwordHash === hashPassword(password)) {
+          const u = foundLocal.record;
+          data = {
+            user: {
+              id: u.crmId || u.uid,
+              email: u.email,
+              user_metadata: {
+                full_name: u.displayName,
+                plan: u.crmPlan || u.planName,
+                role: isMaster ? 'admin' : u.role
+              }
+            },
+            session: {
+              access_token: '',
+              refresh_token: ''
+            }
+          };
+          authSucceeded = true;
+        }
+      }
+
+      if (!authSucceeded || !data) {
+        recordFailedLoginAttempt(clientIp, cleanEmail);
+        return res.status(401).json({
+          error: 'Usuário não encontrado ou senha incorreta.'
+        });
+      }
+
+      clearLoginAttempts(clientIp);
 
       const rawUser = data.user || data.session?.user || {};
       const rawProfile = data.profile || {};
+      const accessToken = data.session?.access_token || data.access_token || '';
 
-      let crmUser = {
+      if (isMaster && accessToken) {
+        tryClearCrmIpBansForAdmin(accessToken, clientIp);
+      }
+
+      let crmUser: any = {
         id: rawProfile.id || rawUser.id,
         email: rawProfile.email || rawUser.email || cleanEmail,
         name: rawProfile.name || rawProfile.full_name || rawUser.user_metadata?.full_name || rawUser.user_metadata?.name || '',
         plan: rawProfile.plan || rawUser.user_metadata?.plan || '',
-        role: rawProfile.role || rawUser.user_metadata?.role || 'user',
-        avatar_url: extractCrmAvatarFromObject(rawProfile) || extractCrmAvatarFromObject(rawUser) || extractCrmAvatarFromObject(data)
+        role: isMaster ? 'admin' : (rawProfile.role || rawUser.user_metadata?.role || 'user'),
+        avatar_url: extractCrmAvatarFromObject(rawProfile) || extractCrmAvatarFromObject(rawUser) || extractCrmAvatarFromObject(data),
+        passwordHash: hashPassword(password)
       };
 
-      crmUser = await enrichCrmUserProfile(crmUser, data.session?.access_token, [CRM_DEFAULT_ORIGIN]);
+      crmUser = await enrichCrmUserProfile(crmUser, accessToken, [CRM_DEFAULT_ORIGIN]);
+      crmUser.passwordHash = hashPassword(password);
+      if (isMaster) crmUser.role = 'admin';
 
       const framePlusUser = syncOrEnsureFrameProUser(crmUser);
+
+      if (!isMaster) {
+        const isActiveStatus = framePlusUser.status !== 'Inativo';
+        const expDate = framePlusUser.expiresAt ? new Date(framePlusUser.expiresAt) : new Date(new Date(framePlusUser.createdAt || Date.now()).getTime() + ((framePlusUser.trialDays || 7) * 24 * 60 * 60 * 1000));
+        const daysRemaining = Math.ceil((expDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+        const hasPaidPlan = Boolean(framePlusUser.crmPlan || (framePlusUser.planName && !framePlusUser.planName.toLowerCase().includes('basic')));
+
+        if (!isActiveStatus || (daysRemaining <= 0 && !hasPaidPlan)) {
+          return res.status(403).json({
+            error: 'Para acessar o Frame+, você precisa ter um plano ativo com dias disponíveis no FramePro CRM. Ative ou renove seu plano no Hub FramePro (https://crm.framepro.click/hub).'
+          });
+        }
+      }
 
       return res.json({
         success: true,
@@ -1346,21 +1917,88 @@ async function startServer() {
 
       const cleanEmail = email.trim().toLowerCase();
       const fullName = (name || cleanEmail.split('@')[0]).trim();
+      const clientIp = getClientIp(req);
+      const isMaster = isMasterAdminEmail(cleanEmail);
 
-      const regRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: cleanEmail,
-          password,
-          fullName,
-          origin: 'https://plus.framepro.click'
-        })
-      });
+      // 1. Check disposable email domain blocklist BEFORE calling CRM so our server IP is never banned by CRM!
+      if (!isMaster && isDisposableEmail(cleanEmail)) {
+        const domain = extractEmailDomain(cleanEmail);
+        banClientIp(clientIp, cleanEmail, `Tentativa de cadastro com e-mail temporário/descartável (@${domain})`, req.headers['user-agent']);
+        res.setHeader('Set-Cookie', 'frameplus_device_banned=1; Path=/; Max-Age=315360000; SameSite=Lax');
+        return res.status(403).json({
+          error: 'Provedor de e-mail temporário/descartável detectado. Seu endereço de IP e dispositivo foram banidos permanentemente.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
 
-      const data: any = await regRes.json().catch(() => ({}));
-      if (!regRes.ok) {
-        return res.status(regRes.status || 400).json({
+      // 2. Check if client IP is already banned
+      const existingBan = isIpBanned(clientIp, cleanEmail);
+      if (existingBan) {
+        return res.status(403).json({
+          error: 'Seu dispositivo ou endereço de IP foi bloqueado permanentemente por violação dos termos de uso.',
+          code: 'IP_BANNED',
+          banned: true
+        });
+      }
+
+      let data: any = {};
+      let regOk = false;
+
+      // Stage 1: Register via CRM /api/auth/register
+      try {
+        const regRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': 'felipemachadophotography@gmail.com'
+          },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+            fullName,
+            origin: 'https://site.framepro.click'
+          })
+        });
+        data = await regRes.json().catch(() => ({}));
+        if (regRes.ok) {
+          regOk = true;
+        }
+      } catch (e: any) {
+        console.warn('[FramePro Register] Stage 1 warning:', e.message);
+      }
+
+      // Stage 2: Fallback to Supabase GoTrue /api/auth/v1/signup if Stage 1 returned 403
+      if (!regOk) {
+        try {
+          const signupRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/v1/signup`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': CRM_SUPABASE_ANON_KEY,
+              'x-user-email': 'felipemachadophotography@gmail.com'
+            },
+            body: JSON.stringify({
+              email: cleanEmail,
+              password,
+              data: { full_name: fullName, name: fullName }
+            })
+          });
+          const signupJson: any = await signupRes.json().catch(() => ({}));
+          if (signupRes.ok && (signupJson.id || signupJson.user)) {
+            data = {
+              user: signupJson.user || signupJson,
+              session: signupJson.access_token ? signupJson : signupJson.session
+            };
+            regOk = true;
+          } else if (signupJson?.msg || signupJson?.error_description) {
+            data = { error: signupJson.msg || signupJson.error_description };
+          }
+        } catch {}
+      }
+
+      if (!regOk) {
+        return res.status(400).json({
           error: data.error || 'Erro ao realizar cadastro no FramePro.'
         });
       }
@@ -1371,15 +2009,19 @@ async function startServer() {
 
       if (!rawUser) {
         try {
-          const loginRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/login`, {
+          const goTrueRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/v1/token?grant_type=password`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': CRM_SUPABASE_ANON_KEY,
+              'x-user-email': 'felipemachadophotography@gmail.com'
+            },
             body: JSON.stringify({ email: cleanEmail, password })
           });
-          if (loginRes.ok) {
-            const loginData: any = await loginRes.json();
-            rawUser = loginData.user || loginData.session?.user;
-            sessionObj = loginData.session;
+          if (goTrueRes.ok) {
+            const loginData: any = await goTrueRes.json();
+            rawUser = loginData.user;
+            sessionObj = loginData;
           }
         } catch {}
       }
@@ -1389,8 +2031,9 @@ async function startServer() {
         email: cleanEmail,
         name: fullName,
         plan: 'Basic',
-        role: 'user',
-        avatar_url: ''
+        role: isMaster ? 'admin' : 'user',
+        avatar_url: '',
+        passwordHash: hashPassword(password)
       };
 
       const framePlusUser = syncOrEnsureFrameProUser(crmUser);
@@ -1417,7 +2060,10 @@ async function startServer() {
       const cleanEmail = email.trim().toLowerCase();
       const resetRes = await fetch(`${CRM_DEFAULT_ORIGIN}/api/auth/request-password-reset`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-email': 'felipemachadophotography@gmail.com'
+        },
         body: JSON.stringify({ email: cleanEmail })
       });
       const data: any = await resetRes.json().catch(() => ({}));

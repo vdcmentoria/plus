@@ -21,8 +21,16 @@ import {
   Eye,
   X,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ShoppingBag,
+  CreditCard
 } from 'lucide-react';
+import {
+  BookingCheckoutConfig,
+  resolveBookingCheckoutConfig,
+  PublicBookingCheckoutWidget,
+  BookingCheckoutEditorSection
+} from './BookingCheckoutFlow';
 
 export type QuoteBoxLayoutPreset =
   | 'atelier_champagne'
@@ -128,6 +136,8 @@ export interface QuoteFormConfig {
   crmPipelineName: string;
   crmColumnId: string;
   crmColumnName: string;
+  // Direct Product Purchase + Calendar Booking + Pix/Gateway Checkout Config
+  bookingCheckout?: BookingCheckoutConfig;
 }
 
 export const ATELIER_CHAMPAGNE_FIELDS: QuoteFieldConfig[] = [
@@ -1227,6 +1237,18 @@ export function InteractiveQuoteFormBox({
     </div>
   );
 
+  const bookingCfg = resolveBookingCheckoutConfig(cfg, site);
+  if (bookingCfg.enabled) {
+    return (
+      <PublicBookingCheckoutWidget
+        site={site}
+        config={bookingCfg}
+        isEditorPreview={isEditorPreview}
+        onSelectQuoteTab={onSelectQuoteTab}
+      />
+    );
+  }
+
   if (cfg.layoutPreset === 'concierge_split') {
     return (
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 items-center px-4">
@@ -1275,7 +1297,10 @@ export function QuoteBuilderDrawerPanel({
   onUpdateQuoteSection?: (patch: { primaryImage?: string; overlayOpacity?: number }) => void;
 }) {
   const cfg = resolveQuoteFormConfig(siteData);
-  const [openMenu, setOpenMenu] = useState<'crm' | 'layout' | 'box' | null>('crm');
+  const bookingCfg = resolveBookingCheckoutConfig(cfg, siteData);
+  const [openMenu, setOpenMenu] = useState<'checkout' | 'crm' | 'layout' | 'box' | null>(
+    bookingCfg.enabled ? 'checkout' : 'crm'
+  );
   const [subTab, setSubTab] = useState<'layouts' | 'caixa'>('layouts');
   const [expandedFieldId, setExpandedFieldId] = useState<string | null>(cfg.fields[0]?.id || null);
   const [newOptionInputs, setNewOptionInputs] = useState<Record<string, string>>({});
@@ -1474,8 +1499,121 @@ export function QuoteBuilderDrawerPanel({
   const activePresetName =
     QUOTE_LAYOUT_PRESETS.find((p) => p.id === cfg.layoutPreset)?.name || 'Personalizado';
 
+  const handleUpdateBookingConfig = (patch: Partial<BookingCheckoutConfig>) => {
+    const nextBooking: BookingCheckoutConfig = {
+      ...bookingCfg,
+      ...patch
+    };
+    updateCfg({ bookingCheckout: nextBooking });
+  };
+
   return (
     <div className="space-y-2.5">
+      {/* ====================================================================
+          SELETOR PRINCIPAL DE MODO: ORÇAMENTO TRADICIONAL vs COMPRA + AGENDA
+          ==================================================================== */}
+      <div
+        className={`p-3.5 rounded-2xl border space-y-2.5 ${
+          isDarkShell ? 'bg-zinc-900/80 border-zinc-800' : 'bg-amber-50/60 border-amber-200/80'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <ShoppingBag className="w-3.5 h-3.5 text-[#D05634]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-[#D05634]">
+              Modo do Orçamento no Site
+            </span>
+          </div>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+              bookingCfg.enabled
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : 'bg-zinc-500/20 text-zinc-400'
+            }`}
+          >
+            {bookingCfg.enabled ? 'Checkout + Agenda Ativo' : 'Formulário Clássico'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              handleUpdateBookingConfig({ enabled: false });
+              setOpenMenu('layout');
+            }}
+            className={`py-2 px-2.5 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+              !bookingCfg.enabled
+                ? 'bg-[#D05634] text-white border-[#D05634] shadow-sm'
+                : isDarkShell
+                  ? 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                  : 'bg-white border-gray-200 text-gray-600'
+            }`}
+          >
+            1. Só Pedido de Orçamento
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              handleUpdateBookingConfig({ enabled: true });
+              setOpenMenu('checkout');
+            }}
+            className={`py-2 px-2.5 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+              bookingCfg.enabled
+                ? 'bg-[#D05634] text-white border-[#D05634] shadow-sm'
+                : isDarkShell
+                  ? 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                  : 'bg-white border-gray-200 text-gray-600'
+            }`}
+          >
+            2. Orçamento + Compra & Agenda
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-500 dark:text-zinc-400 leading-relaxed">
+          No modo <strong>Orçamento + Compra & Agenda</strong>, o cliente escolhe o pacote, adicionais, dia e horário
+          disponível na sua agenda e paga via <strong>Pix Direto (com envio de comprovante)</strong> ou{' '}
+          <strong>Asaas, Mercado Pago e PagHiper (Cartão/Pix + Webhook)</strong>.
+        </p>
+      </div>
+
+      {/* ====================================================================
+          MENU DROPDOWN 0: COMPRA DE PACOTE + AGENDA + PIX / GATEWAYS / WEBHOOK
+          ==================================================================== */}
+      <div className="transition-all">
+        <button
+          type="button"
+          onClick={() => setOpenMenu((prev) => (prev === 'checkout' ? null : 'checkout'))}
+          className={`group w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-left transition-colors cursor-pointer ${
+            isDarkShell ? 'hover:bg-zinc-800/60' : 'hover:bg-gray-100'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <CreditCard className="w-3.5 h-3.5 text-[#D05634]" />
+            <span
+              className={`text-xs font-bold tracking-tight ${
+                isDarkShell ? 'text-zinc-200 group-hover:text-white' : 'text-gray-800 group-hover:text-gray-900'
+              }`}
+            >
+              Compra do Produto, Agenda & Pagamentos
+            </span>
+          </div>
+          <div className="p-1 rounded-lg text-gray-400 shrink-0">
+            {openMenu === 'checkout' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {openMenu === 'checkout' && (
+          <div className="px-3 pb-4 pt-2 space-y-3">
+            <BookingCheckoutEditorSection
+              siteData={siteData}
+              isDarkShell={isDarkShell}
+              config={bookingCfg}
+              onUpdateBookingConfig={handleUpdateBookingConfig}
+            />
+          </div>
+        )}
+      </div>
+
       {/* ====================================================================
           MENU DROPDOWN 1: CONEXÃO CRM (DESIGN DE FOTO 2)
           ==================================================================== */}

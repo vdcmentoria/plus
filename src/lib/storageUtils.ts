@@ -4,10 +4,15 @@ export function isUserAdmin(user: any, userProfile: any): boolean {
   if (!user && !userProfile) return false;
   
   const email = (user?.email || userProfile?.email || '').toLowerCase().trim();
-  const isMaster = email === 'felipemachadophotography@gmail.com' || email === 'isabelefelipefotografias@gmail.com';
+  const isMaster =
+    email === 'felipemachadophotography@gmail.com' ||
+    email === 'isabelefelipefotografias@gmail.com' ||
+    email === 'mariaisabelsocial@gmail.com';
   
   return Boolean(
     isMaster || 
+    user?.role === 'admin' ||
+    user?.isAdmin === true ||
     userProfile?.role === 'admin' || 
     userProfile?.isAdmin === true
   );

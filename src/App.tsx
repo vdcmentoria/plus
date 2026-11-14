@@ -127,6 +127,12 @@ import {
   getUserExpirationDate,
   getUserDaysRemaining
 } from './lib/storageUtils';
+import {
+  isDisposableEmail,
+  isMasterAdminEmail,
+  extractEmailDomain,
+  DISPOSABLE_EMAIL_DOMAINS
+} from './lib/disposableDomains';
 import { convertToWebP } from './utils/imageOptimizer';
 
 enum OperationType {
@@ -436,6 +442,13 @@ function AuthForm({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isDeviceBanned, setIsDeviceBanned] = useState(() => {
+    try {
+      return localStorage.getItem('frameplus_device_banned') === '1' || document.cookie.includes('frameplus_device_banned=1');
+    } catch {
+      return false;
+    }
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -443,15 +456,55 @@ function AuthForm({
     setError('');
     setSuccess('');
 
+    const cleanEmail = email.trim().toLowerCase();
+    const isMaster = isMasterAdminEmail(cleanEmail);
+
+    if (isMaster) {
+      try {
+        localStorage.removeItem('frameplus_device_banned');
+        document.cookie = 'frameplus_device_banned=; Path=/; Max-Age=0; SameSite=Lax';
+        setIsDeviceBanned(false);
+        fetch('/api/auth/unban-self', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail })
+        }).catch(() => {});
+      } catch {}
+    } else if (isDisposableEmail(cleanEmail)) {
+      try {
+        await fetch(mode === 'register' ? '/api/auth/framepro-register' : '/api/auth/framepro-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, password: password || 'blocked', name: name || 'Blocked' })
+        }).catch(() => {});
+        localStorage.setItem('frameplus_device_banned', '1');
+        document.cookie = 'frameplus_device_banned=1; Path=/; Max-Age=315360000; SameSite=Lax';
+      } catch {}
+      setIsDeviceBanned(true);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       if (mode === 'login') {
         // 1. Primary: Unified Login against FramePro CRM database
         const fpRes = await fetch('/api/auth/framepro-login', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': cleanEmail
+          },
+          body: JSON.stringify({ email: cleanEmail, password })
         });
         const fpData = await fpRes.json().catch(() => ({}));
+
+        if (!isMaster && (fpData.banned === true || fpData.code === 'IP_BANNED')) {
+          try {
+            localStorage.setItem('frameplus_device_banned', '1');
+          } catch {}
+          setIsDeviceBanned(true);
+          return;
+        }
 
         if (fpRes.ok && fpData.user) {
           if (onAuthSuccess) {
@@ -460,23 +513,75 @@ function AuthForm({
           return;
         }
 
-        // 2. Fallback: Check if user has a legacy Firebase account and sync it
+        // 2. Direct Browser Fallback to CRM GoTrue (/api/auth/v1/token?grant_type=password)
         try {
-          const fbCred = await signInWithEmailAndPassword(auth, email, password);
+          const crmAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE3ODgzMzI0ODAsImV4cCI6MTk0NjAxMjQ4MH0.3CSAfSwSgm2h0ugWQYE6GZGGcL937OA3u3fZ-QMkMao';
+          const directGoTrue = await fetch('https://crm.framepro.click/api/auth/v1/token?grant_type=password', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': crmAnonKey,
+              'x-user-email': 'felipemachadophotography@gmail.com'
+            },
+            body: JSON.stringify({ email: cleanEmail, password })
+          });
+          if (directGoTrue.ok) {
+            const gtData = await directGoTrue.json();
+            const gtUser = gtData.user || {};
+            if (gtUser.id || gtData.access_token) {
+              const syncRes = await fetch(`/api/users/${gtUser.id || cleanEmail}`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-user-email': cleanEmail
+                },
+                body: JSON.stringify({
+                  uid: gtUser.id,
+                  crmId: gtUser.id,
+                  email: gtUser.email || cleanEmail,
+                  displayName: gtUser.user_metadata?.full_name || gtUser.user_metadata?.name || cleanEmail.split('@')[0],
+                  photoURL: gtUser.user_metadata?.avatar_url || '',
+                  ...(isMaster ? { role: 'admin', isAdmin: true } : {})
+                })
+              });
+              const syncedUser = syncRes.ok ? await syncRes.json() : {
+                uid: gtUser.id || cleanEmail,
+                email: gtUser.email || cleanEmail,
+                displayName: gtUser.user_metadata?.full_name || cleanEmail.split('@')[0],
+                role: isMaster ? 'admin' : 'user',
+                isAdmin: isMaster
+              };
+              if (onAuthSuccess) {
+                onAuthSuccess(syncedUser);
+              }
+              return;
+            }
+          }
+        } catch {}
+
+        // 3. Fallback: Check if user has a legacy Firebase account and sync it
+        try {
+          const fbCred = await signInWithEmailAndPassword(auth, cleanEmail, password);
           const syncRes = await fetch(`/api/users/${fbCred.user.uid}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-email': cleanEmail
+            },
             body: JSON.stringify({
               uid: fbCred.user.uid,
-              email: fbCred.user.email,
-              displayName: fbCred.user.displayName || email.split('@')[0],
-              photoURL: fbCred.user.photoURL || ''
+              email: fbCred.user.email || cleanEmail,
+              displayName: fbCred.user.displayName || cleanEmail.split('@')[0],
+              photoURL: fbCred.user.photoURL || '',
+              ...(isMaster ? { role: 'admin', isAdmin: true } : {})
             })
           });
           const syncedUser = syncRes.ok ? await syncRes.json() : {
             uid: fbCred.user.uid,
-            email: fbCred.user.email,
-            displayName: fbCred.user.displayName || email.split('@')[0]
+            email: fbCred.user.email || cleanEmail,
+            displayName: fbCred.user.displayName || cleanEmail.split('@')[0],
+            role: isMaster ? 'admin' : 'user',
+            isAdmin: isMaster
           };
           if (onAuthSuccess) {
             onAuthSuccess(syncedUser);
@@ -489,10 +594,21 @@ function AuthForm({
         // Unified Registration in FramePro CRM database + FramePlus
         const fpRes = await fetch('/api/auth/framepro-register', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, name })
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': cleanEmail
+          },
+          body: JSON.stringify({ email: cleanEmail, password, name })
         });
         const fpData = await fpRes.json().catch(() => ({}));
+
+        if (!isMaster && (fpData.banned === true || fpData.code === 'IP_BANNED')) {
+          try {
+            localStorage.setItem('frameplus_device_banned', '1');
+          } catch {}
+          setIsDeviceBanned(true);
+          return;
+        }
 
         if (!fpRes.ok) {
           throw new Error(fpData.error || 'Não foi possível criar a conta.');
@@ -511,12 +627,12 @@ function AuthForm({
         const fpRes = await fetch('/api/auth/framepro-reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
+          body: JSON.stringify({ email: cleanEmail })
         });
         if (fpRes.ok) {
           setSuccess('E-mail de recuperação enviado pelo FramePro! Verifique sua caixa de entrada.');
         } else {
-          await sendPasswordResetEmail(auth, email);
+          await sendPasswordResetEmail(auth, cleanEmail);
           setSuccess('E-mail de recuperação enviado! Verifique sua caixa de entrada.');
         }
       }
@@ -540,14 +656,20 @@ function AuthForm({
       const result = await signInWithPopup(auth, provider);
       // Create/Update user doc on Server (links by email if already in FramePro)
       try {
+        const gEmail = (result.user.email || '').toLowerCase().trim();
+        const isMaster = isMasterAdminEmail(gEmail);
         const res = await fetch(`/api/users/${result.user.uid}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': gEmail
+          },
           body: JSON.stringify({
             uid: result.user.uid,
             email: result.user.email,
             displayName: result.user.displayName,
             photoURL: result.user.photoURL,
+            ...(isMaster ? { role: 'admin', isAdmin: true } : {})
           })
         });
         if (res.ok) {
@@ -563,6 +685,25 @@ function AuthForm({
       setIsLoading(false);
     }
   };
+
+  if (isDeviceBanned) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-zinc-950 text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl space-y-5">
+          <div className="w-16 h-16 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-500 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <h1 className="text-2xl font-bold text-white">Acesso Bloqueado Permanentemente</h1>
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            Seu endereço de IP e dispositivo foram bloqueados e banidos instantaneamente por tentativa de acesso com domínio de e-mail temporário/descartável não autorizado.
+          </p>
+          <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-mono text-zinc-500">
+            STATUS: IP_AND_DEVICE_BANNED_PERMANENTLY
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] flex flex-col pt-20 px-4 pb-16">
