@@ -1103,6 +1103,32 @@ async function startServer() {
     return null;
   }
 
+  function validateUserActiveAccess(user: any): { allowed: boolean; error?: string } {
+    if (isMasterAdminEmail(user?.email)) return { allowed: true };
+    if (!user) return { allowed: false, error: 'Usuário não encontrado.' };
+
+    const status = (user.status || 'Ativo').toLowerCase();
+    if (status === 'inativo' || status === 'blocked' || status === 'banned') {
+      return { allowed: false, error: 'Sua conta no FramePro está inativa ou bloqueada.' };
+    }
+
+    const createdAt = user.createdAt ? new Date(user.createdAt).getTime() : Date.now();
+    const trialDays = user.trialDays !== undefined ? Number(user.trialDays) : 0;
+    const expDate = user.expiresAt ? new Date(user.expiresAt) : new Date(createdAt + (trialDays * 24 * 60 * 60 * 1000));
+    const daysRemaining = Math.ceil((expDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    
+    const hasPaidPlan = Boolean(
+      (user.crmPlan && user.crmPlan.trim() !== '' && user.crmPlan.toLowerCase() !== 'none' && !user.crmPlan.toLowerCase().includes('basic') && !user.crmPlan.toLowerCase().includes('inativo')) ||
+      (user.planName && user.planName.trim() !== '' && !user.planName.toLowerCase().includes('basic') && !user.planName.toLowerCase().includes('inativo'))
+    );
+
+    if (daysRemaining <= 0 && !hasPaidPlan) {
+      return { allowed: false, error: 'Sua conta no FramePro possui 0 dias restantes ou não possui um plano ativo. Ative seu plano no Hub FramePro (https://crm.framepro.click/hub).' };
+    }
+
+    return { allowed: true };
+  }
+
   function syncOrEnsureFrameProUser(crmUser: {
     id?: string;
     email?: string;
@@ -1111,6 +1137,9 @@ async function startServer() {
     role?: string;
     avatar_url?: string;
     passwordHash?: string;
+    trial_days?: number;
+    days?: number;
+    status?: string;
   }) {
     const users = readUsers();
     const settings = readSettings();
@@ -1124,19 +1153,28 @@ async function startServer() {
     const role = isMasterAdmin || crmUser.role === 'admin' || existing.role === 'admin' || existing.isAdmin === true ? 'admin' : 'user';
     const isAdmin = role === 'admin' || existing.isAdmin === true || isMasterAdmin;
 
-    let planName = existing.planName;
+    let planName = existing.planName || crmUser.plan || '';
     let storageLimitGB = existing.storageLimitGB;
-    let trialDays = existing.trialDays;
+    let trialDays = crmUser.trial_days !== undefined ? Number(crmUser.trial_days) : (crmUser.days !== undefined ? Number(crmUser.days) : existing.trialDays);
     const createdAt = existing.createdAt || new Date().toISOString();
 
-    if (isNewUser || !planName) {
-      planName = settings.defaultInitialPlan || "Basic (3 GB)";
-      trialDays = settings.defaultTrialDays !== undefined ? Number(settings.defaultTrialDays) : 7;
+    if (isNewUser) {
+      // If user has no active plan or explicit trial days from CRM, check if they paid; otherwise 0 trial days until active plan
+      const hasCrmPlan = Boolean(crmUser.plan && crmUser.plan.trim() !== '' && crmUser.plan.toLowerCase() !== 'none');
+      if (hasCrmPlan || isMasterAdmin) {
+        planName = crmUser.plan || settings.defaultInitialPlan || "Basic (3 GB)";
+        trialDays = crmUser.trial_days !== undefined ? Number(crmUser.trial_days) : 30;
+      } else {
+        // Unpaid new user on FramePro gets 0 days until activating a plan on Hub FramePro
+        planName = crmUser.plan || 'Nenhum Plano';
+        trialDays = 0;
+      }
       storageLimitGB = getPlanStorageLimitGB(planName);
     }
 
     const cleanCrmAvatar = sanitizeAvatarUrl(crmUser.avatar_url);
     const cleanExistingAvatar = sanitizeAvatarUrl(existing.photoURL);
+    const userStatus = crmUser.status || existing.status || (trialDays > 0 || planName !== 'Nenhum Plano' ? 'Ativo' : 'Inativo');
 
     const updatedUser = {
       ...existing,
@@ -1149,11 +1187,11 @@ async function startServer() {
       role,
       isAdmin,
       planName,
-      trialDays: trialDays !== undefined ? Number(trialDays) : 7,
+      trialDays: trialDays !== undefined ? Number(trialDays) : 0,
       storageLimitGB: Number(storageLimitGB || 3),
       createdAt,
       updatedAt: new Date().toISOString(),
-      status: existing.status || "Ativo",
+      status: isMasterAdmin ? 'Ativo' : userStatus,
       authSource: 'framepro_sso',
       ...(crmUser.passwordHash ? { passwordHash: crmUser.passwordHash } : {})
     };
