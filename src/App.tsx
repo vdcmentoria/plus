@@ -72,7 +72,9 @@ import {
   RefreshCw,
   Share2,
   Award,
-  Copy
+  Copy,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 import { 
@@ -108,6 +110,9 @@ import { auth, db, checkConnection } from './lib/firebase';
 import { LojaSidebar } from './components/LojaSidebar';
 import { PublicWebsiteView } from './components/PublicWebsiteView';
 import { SiteBuilderView } from './components/SiteBuilderView';
+import { AIStudioView } from './components/AIStudioView';
+import { PublicBioView } from './components/PublicBioView';
+import { LinkBioBuilderView } from './components/LinkBioBuilderView';
 import { OFFICIAL_ASSOCIATION_SEALS, getAssociationSealLogoUrl } from './components/ScrollytellingThemes';
 import { 
   SecureCanvasViewer, 
@@ -206,7 +211,8 @@ function Navbar({
   isAdmin,
   onLogout,
   globalTheme,
-  onToggleGlobalTheme
+  onToggleGlobalTheme,
+  hiddenNavMenus = []
 }: { 
   activeTab: string; 
   setActiveTab: (t: string) => void; 
@@ -217,6 +223,7 @@ function Navbar({
   onLogout?: () => void;
   globalTheme?: 'light' | 'dark';
   onToggleGlobalTheme?: () => void;
+  hiddenNavMenus?: string[];
 }) {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
@@ -251,12 +258,15 @@ function Navbar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const tabs = [
+  const allTabs = [
     { id: 'inicio', label: 'INÍCIO' },
     { id: 'planos', label: 'PLANOS' },
     { id: 'colecoes', label: 'COLEÇÕES' },
+    { id: 'ai-studio', label: 'ESTÚDIO IA' },
     { id: 'site', label: 'SITE' },
+    { id: 'link-bio', label: 'LINK NA BIO' },
   ];
+  const visibleTabs = allTabs.filter((tab) => !(hiddenNavMenus || []).includes(tab.id));
 
   return (
     <nav className="flex items-center justify-between px-3 sm:px-6 md:px-8 py-3 sm:py-4 border-b border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 sticky top-0 z-[9990]">
@@ -270,7 +280,7 @@ function Navbar({
       </div>
 
       <div className="flex space-x-1 sm:space-x-2 overflow-x-auto no-scrollbar py-0.5 mx-2">
-        {tabs.map(tab => (
+        {visibleTabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -7828,13 +7838,17 @@ const bc = new BroadcastChannel('frame_sync');
 function AdminView({ 
   setActiveTab: setOuterActiveTab,
   user,
-  isAdmin
+  isAdmin,
+  hiddenNavMenus = ['ai-studio'],
+  onUpdateHiddenNavMenus
 }: { 
   setActiveTab?: (tab: string) => void;
   user?: any | null;
   isAdmin?: boolean;
+  hiddenNavMenus?: string[];
+  onUpdateHiddenNavMenus?: (nextHidden: string[]) => Promise<void>;
 }) {
-  const [activeTab, setActiveTab] = useState<'usuarios' | 'sites' | 'armazenamento' | 'planos'>('usuarios');
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'sites' | 'armazenamento' | 'planos' | 'menus'>('usuarios');
   const [usersList, setUsersList] = useState<any[]>([]);
   const [allCollections, setAllCollections] = useState<any[]>([]);
   const [allSites, setAllSites] = useState<any[]>([]);
@@ -7850,10 +7864,80 @@ function AdminView({
   const [r2Status, setR2Status] = useState<any>(null);
   const [settings, setSettings] = useState<any>({
     defaultTrialDays: 7,
-    defaultInitialPlan: "Basic (3 GB)"
+    defaultInitialPlan: "Basic (3 GB)",
+    hiddenNavMenus: ["ai-studio"]
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
+  const [isSavingMenus, setIsSavingMenus] = useState(false);
+  const [menusSavedFeedback, setMenusSavedFeedback] = useState<string | null>(null);
+
+  const ADMIN_NAV_MENU_ITEMS = [
+    {
+      id: 'inicio',
+      label: 'INÍCIO',
+      description: 'Página inicial de boas-vindas e visão geral da plataforma.'
+    },
+    {
+      id: 'planos',
+      label: 'PLANOS',
+      description: 'Página pública de planos, cotas de armazenamento e preços.'
+    },
+    {
+      id: 'colecoes',
+      label: 'COLEÇÕES',
+      description: 'Gerenciador de galerias e entrega de fotos para clientes.'
+    },
+    {
+      id: 'ai-studio',
+      label: 'ESTÚDIO IA',
+      description: 'Ferramenta de curadoria e tratamento com Inteligência Artificial.'
+    },
+    {
+      id: 'site',
+      label: 'SITE',
+      description: 'Construtor de sites profissionais e portfólios para fotógrafos.'
+    },
+    {
+      id: 'link-bio',
+      label: 'LINK NA BIO',
+      description: 'Criador de página Link na Bio personalizada para Instagram e redes sociais.'
+    }
+  ];
+
+  const handleToggleNavMenu = async (menuId: string) => {
+    const current = Array.isArray(hiddenNavMenus) ? hiddenNavMenus : [];
+    const isCurrentlyHidden = current.includes(menuId);
+    const nextHidden = isCurrentlyHidden
+      ? current.filter((id) => id !== menuId)
+      : [...current, menuId];
+
+    setIsSavingMenus(true);
+    setMenusSavedFeedback(null);
+    try {
+      if (onUpdateHiddenNavMenus) {
+        await onUpdateHiddenNavMenus(nextHidden);
+      } else {
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hiddenNavMenus: nextHidden })
+        });
+      }
+      setSettings((prev: any) => ({ ...prev, hiddenNavMenus: nextHidden }));
+      const itemLabel = ADMIN_NAV_MENU_ITEMS.find((m) => m.id === menuId)?.label || menuId;
+      setMenusSavedFeedback(
+        isCurrentlyHidden
+          ? `Menu "${itemLabel}" agora está visível na barra superior.`
+          : `Menu "${itemLabel}" foi ocultado da barra superior.`
+      );
+      setTimeout(() => setMenusSavedFeedback(null), 3500);
+    } catch (err) {
+      console.error('Error toggling menu visibility:', err);
+    } finally {
+      setIsSavingMenus(false);
+    }
+  };
 
   const getPublicSiteUrl = (site: any): string => {
     if (!site) return '';
@@ -8220,6 +8304,16 @@ function AdminView({
             }`}
           >
             <Settings className="w-4 h-4" /> Planos
+          </button>
+          <button 
+            onClick={() => setActiveTab('menus')}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === 'menus' 
+                ? 'bg-[#D05634] text-white shadow-sm' 
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Layout className="w-4 h-4" /> Menus ({hiddenNavMenus.length} {hiddenNavMenus.length === 1 ? 'oculto' : 'ocultos'})
           </button>
         </div>
       </div>
@@ -8712,6 +8806,111 @@ function AdminView({
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'menus' && (
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm text-left max-w-4xl mx-auto">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 mb-6 border-b border-gray-100">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Visibilidade dos Menus Superiores</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Escolha quais abas aparecem na barra de navegação superior para os usuários. As alterações têm efeito imediato.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={isSavingMenus || hiddenNavMenus.length === 0}
+                onClick={async () => {
+                  setIsSavingMenus(true);
+                  try {
+                    if (onUpdateHiddenNavMenus) {
+                      await onUpdateHiddenNavMenus([]);
+                    }
+                    setMenusSavedFeedback('Todos os menus superiores foram exibidos.');
+                    setTimeout(() => setMenusSavedFeedback(null), 3500);
+                  } finally {
+                    setIsSavingMenus(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40 text-xs font-bold text-gray-700 transition-colors cursor-pointer shrink-0"
+              >
+                Exibir Todos
+              </button>
+            </div>
+
+            {menusSavedFeedback && (
+              <div className="mb-5 px-4 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{menusSavedFeedback}</span>
+              </div>
+            )}
+
+            <div className="divide-y divide-gray-100 border border-gray-100 rounded-2xl overflow-hidden">
+              {ADMIN_NAV_MENU_ITEMS.map((menu) => {
+                const isHidden = hiddenNavMenus.includes(menu.id);
+                return (
+                  <div
+                    key={menu.id}
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 transition-colors ${
+                      isHidden ? 'bg-gray-50/70' : 'bg-white hover:bg-gray-50/40'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          isHidden
+                            ? 'bg-gray-200/70 text-gray-500'
+                            : 'bg-[#FFF0EB] text-[#D05634]'
+                        }`}
+                      >
+                        {isHidden ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-sm font-bold text-gray-900 tracking-wide">
+                            {menu.label}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                              isHidden
+                                ? 'bg-gray-200 text-gray-600'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}
+                          >
+                            {isHidden ? 'Oculto' : 'Visível'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">{menu.description}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                      <button
+                        type="button"
+                        disabled={isSavingMenus}
+                        onClick={() => handleToggleNavMenu(menu.id)}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 ${
+                          isHidden
+                            ? 'bg-[#D05634] hover:bg-[#b84a2b] text-white shadow-xs'
+                            : 'bg-white hover:bg-red-50 text-gray-700 hover:text-red-700 border border-gray-200 hover:border-red-200'
+                        }`}
+                      >
+                        {isHidden ? (
+                          <>
+                            <Eye className="w-3.5 h-3.5" /> Mostrar Menu
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" /> Ocultar Menu
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -9406,14 +9605,14 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
                     <h4 className="text-sm font-bold text-gray-900">Baixar o Plugin do Frame+</h4>
                   </div>
                   <p className="text-xs text-gray-500 leading-relaxed pl-9 font-sans">
-                    Preparamos um arquivo <b>.zip</b> pronto com os scripts de exportação formatados. Baixe-o clicando no botão abaixo, extraia o arquivo e salve a pasta <b>"frameplus.lrplugin"</b> em um local permanente no seu computador (por exemplo, na pasta Documentos).
+                    Preparamos um arquivo <b>.zip</b> pronto com o plugin unificado (<b>FramePlusAI.lrplugin</b>) contendo o comando <b>Editar com Frame Plus IA</b> (ponte HTTP local) e o exportador direto para suas galerias. Extraia o arquivo e salve a pasta em Documentos.
                   </p>
                   <div className="pl-9">
                     <a 
                       href="/api/lightroom/download"
                       className="inline-flex items-center gap-2 bg-[#D05634] hover:bg-[#b84a2b] text-white px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
                     >
-                      <Download className="w-4 h-4" /> Baixar Plugin Lightroom (.zip)
+                      <Download className="w-4 h-4" /> Baixar Plugin FramePlusAI.lrplugin (.zip)
                     </a>
                   </div>
                 </div>
@@ -9428,8 +9627,8 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
                     <li>Abra o <b>Adobe Lightroom Classic</b>.</li>
                     <li>No menu superior, clique em <b>Arquivo &gt; Gerenciador de Plug-ins...</b> (File &gt; Plug-in Manager).</li>
                     <li>Clique no botão <b>Adicionar</b> (Add) no canto inferior esquerdo.</li>
-                    <li>Navegue até a pasta extraída <b>"frameplus.lrplugin"</b>, selecione-a e confirme.</li>
-                    <li>Pronto! O plugin "Frame+" deverá aparecer com o status de luz verde "Ativo".</li>
+                    <li>Navegue até a pasta extraída <b>"FramePlusAI.lrplugin"</b>, selecione-a e confirme.</li>
+                    <li>Pronto! O plugin "Frame+ AI Studio & Gallery" deverá aparecer com o status de luz verde "Ativo".</li>
                   </ul>
                 </div>
 
@@ -9527,9 +9726,52 @@ function ConfiguracoesView({ user, userProfile, onUpdateProfile }: Configuracoes
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('inicio');
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const requested = new URLSearchParams(window.location.search).get('tab');
+      if (requested) return requested;
+    } catch {}
+    return 'inicio';
+  });
   const [collectionsState, setCollectionsState] = useState<any[] | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [hiddenNavMenus, setHiddenNavMenus] = useState<string[]>(['ai-studio']);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/settings')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data && Array.isArray(data.hiddenNavMenus)) {
+          setHiddenNavMenus(data.hiddenNavMenus);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleUpdateHiddenNavMenus = async (nextHidden: string[]) => {
+    setHiddenNavMenus(nextHidden);
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hiddenNavMenus: nextHidden })
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      if (Array.isArray(updated?.hiddenNavMenus)) {
+        setHiddenNavMenus(updated.hiddenNavMenus);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (hiddenNavMenus.includes(activeTab) && activeTab !== 'admin' && activeTab !== 'configuracoes') {
+      setActiveTab('inicio');
+    }
+  }, [hiddenNavMenus, activeTab]);
   const [globalTheme, setGlobalTheme] = useState<'light' | 'dark'>(() => {
     try {
       const saved = localStorage.getItem('frameplus_theme');
@@ -9603,7 +9845,8 @@ export default function App() {
     setUser(normalized);
     setUserProfile(normalized);
     setIsAuthInited(true);
-    setActiveTab('colecoes');
+    const requestedTab = queryParams.get('tab');
+    setActiveTab(requestedTab || 'colecoes');
   };
 
   const handleLogout = async () => {
@@ -9703,10 +9946,14 @@ export default function App() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const forceMainApp = urlParams.get('app') === '1' || urlParams.get('main') === '1' || urlParams.get('dashboard') === '1';
-  const pathSegment = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+  const pathSegments = window.location.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  const pathSegment = pathSegments[0] || '';
   const gallerySlug = urlParams.get('gallery');
   const querySiteSlug = urlParams.get('site') || urlParams.get('s');
-  const reservedPaths = ['admin', 'hub', 'dashboard', 'planos', 'colecoes', 'inicio', 'editor', 'login', 'cadastro', 'configuracoes', 'api', 'site'];
+  const queryBioSlug = urlParams.get('bio') || '';
+  const pathBioSlug = (!forceMainApp && pathSegment.toLowerCase() === 'bio' && pathSegments[1]) ? pathSegments[1] : '';
+  const bioSlug = forceMainApp ? '' : (queryBioSlug || pathBioSlug);
+  const reservedPaths = ['admin', 'hub', 'dashboard', 'planos', 'colecoes', 'inicio', 'editor', 'login', 'cadastro', 'configuracoes', 'api', 'site', 'bio', 'link-bio'];
   const pathSiteSlug = (!forceMainApp && !reservedPaths.includes(pathSegment.toLowerCase()) && pathSegment && !pathSegment.includes('.')) ? pathSegment : '';
   const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
   const customPlatformHost = ((import.meta as any).env?.VITE_PLATFORM_HOST || '').toLowerCase();
@@ -9748,8 +9995,8 @@ export default function App() {
     currentHost.endsWith('.netlify.app') ||
     currentHost.endsWith('.fly.dev') ||
     currentHost.endsWith('.pages.dev');
-  const isCustomDomainHost = !isPlatformHost && !gallerySlug && (!pathSegment || !reservedPaths.includes(pathSegment.toLowerCase()));
-  const isPublicView = !forceMainApp && (!!gallerySlug || !!siteSlug || isCustomDomainHost);
+  const isCustomDomainHost = !isPlatformHost && !gallerySlug && !bioSlug && (!pathSegment || !reservedPaths.includes(pathSegment.toLowerCase()));
+  const isPublicView = !forceMainApp && (!!gallerySlug || !!bioSlug || !!siteSlug || isCustomDomainHost);
 
   // 0. Connection check (Non-blocking warning)
   useEffect(() => {
@@ -10388,6 +10635,11 @@ export default function App() {
     );
   }
 
+  // Handle Link na Bio public route immediately (no need to wait for collections)
+  if (bioSlug) {
+    return <PublicBioView bioSlug={bioSlug} />;
+  }
+
   if (collectionsState === null) {
     return (
       <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center">
@@ -10474,6 +10726,7 @@ export default function App() {
           onLogout={handleLogout}
           globalTheme={globalTheme}
           onToggleGlobalTheme={toggleGlobalTheme}
+          hiddenNavMenus={hiddenNavMenus}
         />
       )}
       
@@ -10536,7 +10789,13 @@ export default function App() {
           <AuthForm mode="register" onToggleMode={() => setActiveTab('login')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
         )}
         {activeTab === 'admin' && (
-          <AdminView setActiveTab={setActiveTab} user={user} isAdmin={isAdmin} />
+          <AdminView 
+            setActiveTab={setActiveTab} 
+            user={user} 
+            isAdmin={isAdmin}
+            hiddenNavMenus={hiddenNavMenus}
+            onUpdateHiddenNavMenus={handleUpdateHiddenNavMenus}
+          />
         )}
         {activeTab === 'configuracoes' && (
           user ? (
@@ -10544,6 +10803,19 @@ export default function App() {
               user={user} 
               userProfile={userProfile} 
               onUpdateProfile={updateUserProfile} 
+            />
+          ) : (
+            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
+          )
+        )}
+        {activeTab === 'ai-studio' && (
+          user ? (
+            <AIStudioView
+              user={user}
+              collections={collectionsState || []}
+              setCollections={setCollectionsState}
+              setCurrentCollectionId={setCurrentCollectionId}
+              setActiveTab={setActiveTab}
             />
           ) : (
             <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
@@ -10558,6 +10830,16 @@ export default function App() {
               setActiveTab={setActiveTab} 
               globalTheme={globalTheme}
               onToggleGlobalTheme={toggleGlobalTheme}
+            />
+          ) : (
+            <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />
+          )
+        )}
+        {activeTab === 'link-bio' && (
+          user ? (
+            <LinkBioBuilderView
+              user={user}
+              userProfile={userProfile}
             />
           ) : (
             <AuthForm mode="login" onToggleMode={() => setActiveTab('cadastro')} onToggleRecovery={setAuthRecoveryMode} onAuthSuccess={handleAuthSuccess} />

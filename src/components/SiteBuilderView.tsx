@@ -306,7 +306,16 @@ export function SiteBuilderView({
     stackScaleStep: sec.stackScaleStep,
     wordGlowColor: sec.wordGlowColor,
     showFloatingSidePhotos: sec.showFloatingSidePhotos,
-    sliderHandleIcon: sec.sliderHandleIcon
+    sliderHandleIcon: sec.sliderHandleIcon,
+    bioLayoutMode: sec.bioLayoutMode,
+    bioButtonStyle: sec.bioButtonStyle,
+    bioShowNumbers: sec.bioShowNumbers,
+    bioAvatarSize: sec.bioAvatarSize,
+    bioAvatarPosition: sec.bioAvatarPosition,
+    bioImageTransition: sec.bioImageTransition,
+    bioSurfaceColor: sec.bioSurfaceColor,
+    bioMutedColor: sec.bioMutedColor,
+    bioShowSocialRow: sec.bioShowSocialRow
   });
 
   // Applies a layout-only configuration (from a preset theme or from Meus Themas) onto the user's existing sections,
@@ -387,6 +396,15 @@ export function SiteBuilderView({
         wordGlowColor: layoutSec.wordGlowColor ?? userSec.wordGlowColor,
         showFloatingSidePhotos: layoutSec.showFloatingSidePhotos ?? userSec.showFloatingSidePhotos,
         sliderHandleIcon: layoutSec.sliderHandleIcon ?? userSec.sliderHandleIcon,
+        bioLayoutMode: layoutSec.bioLayoutMode ?? userSec.bioLayoutMode,
+        bioButtonStyle: layoutSec.bioButtonStyle ?? userSec.bioButtonStyle,
+        bioShowNumbers: layoutSec.bioShowNumbers ?? userSec.bioShowNumbers,
+        bioAvatarSize: layoutSec.bioAvatarSize ?? userSec.bioAvatarSize,
+        bioAvatarPosition: layoutSec.bioAvatarPosition ?? userSec.bioAvatarPosition,
+        bioImageTransition: layoutSec.bioImageTransition ?? userSec.bioImageTransition,
+        bioSurfaceColor: layoutSec.bioSurfaceColor ?? userSec.bioSurfaceColor,
+        bioMutedColor: layoutSec.bioMutedColor ?? userSec.bioMutedColor,
+        bioShowSocialRow: layoutSec.bioShowSocialRow ?? userSec.bioShowSocialRow,
         // Strictly preserve all user writings, links, and uploaded media/photos
         id: userSec.id,
         navLabel: userSec.navLabel,
@@ -408,6 +426,10 @@ export function SiteBuilderView({
           userSec.items && userSec.items.length > 0
             ? userSec.items
             : fallbackTemplate.items,
+        bioMenuLinks:
+          userSec.bioMenuLinks && userSec.bioMenuLinks.length > 0
+            ? userSec.bioMenuLinks
+            : fallbackTemplate.bioMenuLinks,
         copyrightText: userSec.copyrightText,
         footerCreditsText: userSec.footerCreditsText,
         backToTopText: userSec.backToTopText,
@@ -2188,6 +2210,7 @@ export function SiteBuilderView({
 
               // Exact capabilities per section type so ONLY controls that make a real visual difference appear
               const hasFineEffectControls = [
+                'minimal_editorial_bio_hero',
                 'koreo_split_curtain',
                 'circle_iris_portal',
                 'hero_curtain_reveal',
@@ -2227,6 +2250,7 @@ export function SiteBuilderView({
 
               const usesPrimaryMedia =
                 [
+                  'minimal_editorial_bio_hero',
                   'koreo_split_curtain',
                   'hero_curtain_reveal',
                   'hero_3d_perspective',
@@ -2240,6 +2264,7 @@ export function SiteBuilderView({
                 (secType === 'custom_footer_section' && activeFooterEffect === 'curtain_parallax_bg');
 
               const usesDualPhotos =
+                secType === 'minimal_editorial_bio_hero' ||
                 secType === 'vogue_overlapping_spread' ||
                 (secType === 'custom_quote_section' && activeQuoteEffect === 'editorial_frame_vignette') ||
                 (secType === 'manifesto_word_reveal' && selectedSec.showFloatingSidePhotos !== false);
@@ -2604,6 +2629,261 @@ export function SiteBuilderView({
                                 {(libMeta?.label || selectedSec.type).toUpperCase()}
                               </span>
                             </div>
+
+                            {/* THEMA 1 PADRÃO — EDITORIAL CLEAN & MENU NUMERADO (01–05) */}
+                            {secType === 'minimal_editorial_bio_hero' && (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] text-gray-400 mb-0.5">Composição do Layout</label>
+                                    <select
+                                      value={selectedSec.bioLayoutMode || 'split_editorial'}
+                                      onChange={(e) => updateSectionBlock(selectedSec.id, { bioLayoutMode: e.target.value as any })}
+                                      className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold ${
+                                        isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                      }`}
+                                    >
+                                      <option value="split_editorial">Editorial Split + Vitrine</option>
+                                      <option value="centered_minimal">Centralizado Minimalista (560px)</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] text-gray-400 mb-0.5">Estilo do Menu Numerado</label>
+                                    <select
+                                      value={selectedSec.bioButtonStyle || 'line'}
+                                      onChange={(e) => updateSectionBlock(selectedSec.id, { bioButtonStyle: e.target.value as any })}
+                                      className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold ${
+                                        isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                      }`}
+                                    >
+                                      <option value="line">Linha Hairline (Padrão)</option>
+                                      <option value="minimal_outline">Contorno Minimalista</option>
+                                      <option value="soft_surface">Cartão Superfície Clara</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] text-gray-400 mb-0.5">Efeito & Transição de Imagem</label>
+                                    <select
+                                      value={selectedSec.bioImageTransition || 'soft_zoom'}
+                                      onChange={(e) => updateSectionBlock(selectedSec.id, { bioImageTransition: e.target.value as any })}
+                                      className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold ${
+                                        isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                      }`}
+                                    >
+                                      <option value="soft_zoom">Soft Zoom Editorial</option>
+                                      <option value="parallax_float">Parallax Float no Scroll</option>
+                                      <option value="bw_to_color">P&B → Cor Suave no Hover</option>
+                                      <option value="curtain_fade">Cortina Fade Editorial</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] text-gray-400 mb-0.5">Tamanho do Avatar</label>
+                                    <select
+                                      value={selectedSec.bioAvatarSize || 'lg'}
+                                      onChange={(e) => updateSectionBlock(selectedSec.id, { bioAvatarSize: e.target.value as any })}
+                                      className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold ${
+                                        isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                      }`}
+                                    >
+                                      <option value="sm">Compacto (80px)</option>
+                                      <option value="md">Médio (96px)</option>
+                                      <option value="lg">Editorial Grande (128px)</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] text-gray-400 mb-0.5">Enquadramento Focal do Avatar</label>
+                                    <select
+                                      value={selectedSec.bioAvatarPosition || '50% 15%'}
+                                      onChange={(e) => updateSectionBlock(selectedSec.id, { bioAvatarPosition: e.target.value })}
+                                      className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold ${
+                                        isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                      }`}
+                                    >
+                                      <option value="50% 15%">Topo / Rosto (50% 15%)</option>
+                                      <option value="50% 30%">Alto Suave (50% 30%)</option>
+                                      <option value="50% 50%">Centralizado (50% 50%)</option>
+                                      <option value="50% 75%">Inferior (50% 75%)</option>
+                                    </select>
+                                  </div>
+                                  <div className="flex flex-col justify-end gap-1.5 pb-0.5">
+                                    <label className="flex items-center gap-2 text-[11px] font-semibold cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedSec.bioShowNumbers !== false}
+                                        onChange={(e) => updateSectionBlock(selectedSec.id, { bioShowNumbers: e.target.checked })}
+                                        className="accent-[#D05634] rounded"
+                                      />
+                                      <span>Numeração (01–05)</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-[11px] font-semibold cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedSec.bioShowSocialRow !== false}
+                                        onChange={(e) => updateSectionBlock(selectedSec.id, { bioShowSocialRow: e.target.checked })}
+                                        className="accent-[#D05634] rounded"
+                                      />
+                                      <span>Ícones Redes Sociais</span>
+                                    </label>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200/50 dark:border-zinc-800">
+                                  <div>
+                                    <label className="block text-[10px] text-gray-400 mb-1">Superfície Sutil (#F9FAFB)</label>
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="color"
+                                        value={selectedSec.bioSurfaceColor || '#F9FAFB'}
+                                        onChange={(e) => updateSectionBlock(selectedSec.id, { bioSurfaceColor: e.target.value })}
+                                        className="w-7 h-7 rounded border-0 cursor-pointer"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={selectedSec.bioSurfaceColor || '#F9FAFB'}
+                                        onChange={(e) => updateSectionBlock(selectedSec.id, { bioSurfaceColor: e.target.value })}
+                                        className={`w-full px-2 py-1 rounded-lg border text-[10px] font-mono ${
+                                          isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                        }`}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] text-gray-400 mb-1">Texto Secundário (#667085)</label>
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="color"
+                                        value={selectedSec.bioMutedColor || '#667085'}
+                                        onChange={(e) => updateSectionBlock(selectedSec.id, { bioMutedColor: e.target.value })}
+                                        className="w-7 h-7 rounded border-0 cursor-pointer"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={selectedSec.bioMutedColor || '#667085'}
+                                        onChange={(e) => updateSectionBlock(selectedSec.id, { bioMutedColor: e.target.value })}
+                                        className={`w-full px-2 py-1 rounded-lg border text-[10px] font-mono ${
+                                          isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                        }`}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Editor Completo dos Links do Menu Numerado (01–05) */}
+                                <div className="pt-2 border-t border-gray-200/50 dark:border-zinc-800 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-[#D05634]">
+                                      Links do Menu Numerado (01–05)
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const curr = selectedSec.bioMenuLinks || [];
+                                        const nextNum = String(curr.length + 1).padStart(2, '0');
+                                        updateSectionBlock(selectedSec.id, {
+                                          bioMenuLinks: [
+                                            ...curr,
+                                            {
+                                              id: `bio_link_${Date.now()}`,
+                                              label: `NOVO LINK ${nextNum}`,
+                                              url: '#portfolio',
+                                              icon: 'camera',
+                                              number: nextNum
+                                            }
+                                          ]
+                                        });
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-[#D05634] text-white text-[10px] font-bold hover:opacity-90"
+                                    >
+                                      + Adicionar Link
+                                    </button>
+                                  </div>
+
+                                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
+                                    {(selectedSec.bioMenuLinks || []).map((linkItem, lIdx) => (
+                                      <div
+                                        key={linkItem.id || lIdx}
+                                        className={`p-2 rounded-lg border space-y-1.5 ${
+                                          isDarkShell ? 'bg-zinc-950/70 border-zinc-800' : 'bg-gray-50 border-gray-200'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[10px] font-mono opacity-60 w-5 shrink-0">
+                                            {String(lIdx + 1).padStart(2, '0')}
+                                          </span>
+                                          <input
+                                            type="text"
+                                            value={linkItem.label}
+                                            onChange={(e) => {
+                                              const next = [...(selectedSec.bioMenuLinks || [])];
+                                              next[lIdx] = { ...next[lIdx], label: e.target.value };
+                                              updateSectionBlock(selectedSec.id, { bioMenuLinks: next });
+                                            }}
+                                            placeholder="Rótulo do link..."
+                                            className={`flex-1 px-2 py-1 rounded border text-[11px] font-semibold ${
+                                              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                            }`}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const next = (selectedSec.bioMenuLinks || [])
+                                                .filter((_, i) => i !== lIdx)
+                                                .map((it, i) => ({ ...it, number: String(i + 1).padStart(2, '0') }));
+                                              updateSectionBlock(selectedSec.id, { bioMenuLinks: next });
+                                            }}
+                                            className="p-1 text-red-400 hover:text-red-500 text-[10px] font-bold"
+                                            title="Remover link"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-1.5">
+                                          <select
+                                            value={linkItem.icon || 'camera'}
+                                            onChange={(e) => {
+                                              const next = [...(selectedSec.bioMenuLinks || [])];
+                                              next[lIdx] = { ...next[lIdx], icon: e.target.value as any };
+                                              updateSectionBlock(selectedSec.id, { bioMenuLinks: next });
+                                            }}
+                                            className={`px-1.5 py-1 rounded border text-[10px] font-semibold ${
+                                              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                            }`}
+                                          >
+                                            <option value="whatsapp">WhatsApp</option>
+                                            <option value="camera">Câmera</option>
+                                            <option value="newspaper">Blog</option>
+                                            <option value="users">Portal</option>
+                                            <option value="briefcase">Contato</option>
+                                            <option value="heart">Casamento</option>
+                                            <option value="globe">Site</option>
+                                            <option value="mail">E-mail</option>
+                                          </select>
+                                          <input
+                                            type="text"
+                                            value={linkItem.url}
+                                            onChange={(e) => {
+                                              const next = [...(selectedSec.bioMenuLinks || [])];
+                                              next[lIdx] = { ...next[lIdx], url: e.target.value };
+                                              updateSectionBlock(selectedSec.id, { bioMenuLinks: next });
+                                            }}
+                                            placeholder="#portfolio, #orcamento ou https://..."
+                                            className={`col-span-2 px-2 py-1 rounded border text-[10px] font-mono ${
+                                              isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
+                                            }`}
+                                          />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
 
                             {/* CORTINA BIPARTIDA + MARQUEE CINÉTICO */}
                             {secType === 'koreo_split_curtain' && (
@@ -3781,6 +4061,7 @@ export function SiteBuilderView({
                                 isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
                               }`}
                             >
+                              <option value="minimal_line_numbered">✦ Minimalist Numbered Line Bar (Thema 1 Padrão)</option>
                               <option value="floating_pill">✨ Magic UI Floating Glass Header (Pílula Flutuante)</option>
                               <option value="minimal_top">📐 Minimalist Top Bar (Barra Superior Discreta)</option>
                               <option value="centered_logo">🎯 Centered Logo Header (Logo Central Clássico)</option>
@@ -3974,6 +4255,8 @@ export function SiteBuilderView({
                                   }`}
                                 >
                                   <option value="">Padrão do Site</option>
+                                  <option value="Raleway">Raleway (Clean Editorial)</option>
+                                  <option value="Poppins">Poppins (Geométrica)</option>
                                   <option value="Outfit">Outfit (Moderna)</option>
                                   <option value="Plus Jakarta Sans">Plus Jakarta Sans</option>
                                   <option value="Inter">Inter (Limpa)</option>
@@ -4283,11 +4566,13 @@ export function SiteBuilderView({
                                 isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
                               }`}
                             >
+                              <option value="Raleway">Raleway (Clean Editorial · Padrão)</option>
                               <option value="Playfair Display">Playfair Display (Editorial)</option>
                               <option value="Cinzel">Cinzel (Alta Costura / Luxo)</option>
                               <option value="Outfit">Outfit (Moderna & Clean)</option>
                               <option value="Bricolage Grotesque">Bricolage Grotesque (Kinetic)</option>
                               <option value="Plus Jakarta Sans">Plus Jakarta Sans (Geométrica)</option>
+                              <option value="Poppins">Poppins (Minimalista)</option>
                               <option value="Lora">Lora (Romântica / Clássica)</option>
                               <option value="Cormorant Garamond">Cormorant Garamond (Poética)</option>
                               <option value="Syne">Syne (Design Vanguardista)</option>
@@ -4312,6 +4597,8 @@ export function SiteBuilderView({
                                 isDarkShell ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-gray-200 text-gray-900'
                               }`}
                             >
+                              <option value="Poppins">Poppins (Clean Editorial · Padrão)</option>
+                              <option value="Raleway">Raleway</option>
                               <option value="Plus Jakarta Sans">Plus Jakarta Sans</option>
                               <option value="DM Sans">DM Sans</option>
                               <option value="Manrope">Manrope</option>
@@ -4639,11 +4926,13 @@ export function SiteBuilderView({
                             <>
                               <div className="space-y-1.5">
                                 <label className="block text-[10px] font-semibold text-gray-400">
-                                  {secType === 'bento_zoom_mosaic'
-                                    ? 'Foto Central em Destaque (Zoom Inicial)'
-                                    : secType === 'vogue_overlapping_spread'
-                                      ? 'Foto Principal Esquerda (Formato 4:5)'
-                                      : 'Imagem Principal desta Dobra'}
+                                  {secType === 'minimal_editorial_bio_hero'
+                                    ? 'Foto de Perfil / Avatar Circular (1:1)'
+                                    : secType === 'bento_zoom_mosaic'
+                                      ? 'Foto Central em Destaque (Zoom Inicial)'
+                                      : secType === 'vogue_overlapping_spread'
+                                        ? 'Foto Principal Esquerda (Formato 4:5)'
+                                        : 'Imagem Principal desta Dobra'}
                                 </label>
                                 <div className="flex gap-2">
                                   <input
@@ -4767,9 +5056,11 @@ export function SiteBuilderView({
 
                               <div className="space-y-1.5">
                                 <label className="block text-[10px] font-semibold text-gray-400">
-                                  {secType === 'vogue_overlapping_spread'
-                                    ? 'Segunda Foto Editorial Direita (Formato 3:4)'
-                                    : 'Foto Flutuante da Direita'}
+                                  {secType === 'minimal_editorial_bio_hero'
+                                    ? 'Foto de Destaque da Vitrine Editorial (Slider)'
+                                    : secType === 'vogue_overlapping_spread'
+                                      ? 'Segunda Foto Editorial Direita (Formato 3:4)'
+                                      : 'Foto Flutuante da Direita'}
                                 </label>
                                 <div className="flex gap-2">
                                   <input
@@ -5849,8 +6140,36 @@ export function SiteBuilderView({
                                     sectionsThemeId: nextId === 'classic' ? 'lumina-editorial' : nextId,
                                     sections: adaptedSections
                                   };
+                                  const padraoOverrides =
+                                    nextId === 'padrao-editorial'
+                                      ? {
+                                          theme: 'light' as const,
+                                          primaryColor: '#475467',
+                                          navStyle: 'minimal_line_numbered' as const,
+                                          navBgColor: '#FFFFFF',
+                                          navTextColor: '#475467',
+                                          navActiveTextColor: '#101828',
+                                          navBorderColor: 'rgba(16, 24, 40, 0.12)',
+                                          navCtaBgColor: '#FFFFFF',
+                                          navCtaTextColor: '#101828'
+                                        }
+                                      : siteData.navStyle === 'minimal_line_numbered'
+                                        ? {
+                                            theme: (t.defaultBg.toLowerCase() === '#ffffff' || t.defaultBg.toLowerCase() === '#fafafa' || t.defaultBg.toLowerCase() === '#f7f4ef' || t.defaultBg.toLowerCase() === '#f4f1ea'
+                                              ? 'light'
+                                              : 'dark') as 'light' | 'dark',
+                                            navStyle: 'floating_pill' as const,
+                                            navBgColor: '',
+                                            navTextColor: '',
+                                            navActiveTextColor: '',
+                                            navBorderColor: '',
+                                            navCtaBgColor: '',
+                                            navCtaTextColor: ''
+                                          }
+                                        : {};
                                   setSiteData((prev) => ({
                                     ...prev,
+                                    ...padraoOverrides,
                                     theme_id: nextId,
                                     scrollytellingThemeId: nextId,
                                     headingFont: t.defaultHeadingFont,
@@ -5858,6 +6177,7 @@ export function SiteBuilderView({
                                     scrollytellingConfig: nextCfg
                                   }));
                                   handleSaveSite({
+                                    ...padraoOverrides,
                                     theme_id: nextId,
                                     scrollytellingThemeId: nextId,
                                     headingFont: t.defaultHeadingFont,
@@ -5966,6 +6286,7 @@ export function SiteBuilderView({
                               : 'bg-gray-50 border-gray-200 text-gray-900'
                           }`}
                         >
+                          <option value="minimal_line_numbered">Minimalist Numbered Line Bar (Thema 1 Padrão)</option>
                           <option value="floating_pill">Magic UI Floating Glass Header</option>
                           <option value="minimal_top">Minimalist Top Bar</option>
                           <option value="centered_logo">Centered Logo Header</option>
@@ -6159,9 +6480,11 @@ export function SiteBuilderView({
                       isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'
                     }`}
                   >
+                    <option value="Raleway">Raleway (Clean Editorial · Padrão)</option>
                     <option value="Outfit">Outfit (Moderna Sans)</option>
                     <option value="Playfair Display">Playfair Display (Editorial Serif)</option>
                     <option value="Plus Jakarta Sans">Plus Jakarta Sans (Limpa)</option>
+                    <option value="Poppins">Poppins (Geométrica)</option>
                     <option value="Bricolage Grotesque">Bricolage Grotesque (Brutalista)</option>
                     <option value="Cinzel">Cinzel (Luxo & Casamentos)</option>
                   </select>
@@ -6180,6 +6503,8 @@ export function SiteBuilderView({
                       isDarkShell ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'
                     }`}
                   >
+                    <option value="Poppins">Poppins (Clean Editorial · Padrão)</option>
+                    <option value="Raleway">Raleway</option>
                     <option value="Plus Jakarta Sans">Plus Jakarta Sans</option>
                     <option value="DM Sans">DM Sans</option>
                     <option value="Manrope">Manrope</option>

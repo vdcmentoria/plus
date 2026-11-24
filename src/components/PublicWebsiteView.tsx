@@ -59,7 +59,7 @@ export interface SiteData {
   logoUrl?: string;
   faviconUrl?: string;
   heroStyle?: 'magic_spotlight' | 'split_showcase' | 'minimal_luxury' | 'floating_glass' | 'cinematic_video';
-  navStyle?: 'floating_pill' | 'minimal_top' | 'centered_logo' | 'dark_editorial' | 'modern_split';
+  navStyle?: 'floating_pill' | 'minimal_top' | 'centered_logo' | 'dark_editorial' | 'modern_split' | 'minimal_line_numbered';
   navTransparency?: 'glass' | 'transparent' | 'solid';
   bioPhotoUrl?: string;
   bioText?: string;
@@ -211,6 +211,15 @@ export interface SavedSectionLayout {
   wordGlowColor?: string;
   showFloatingSidePhotos?: boolean;
   sliderHandleIcon?: ScrollySectionBlock['sliderHandleIcon'];
+  bioLayoutMode?: ScrollySectionBlock['bioLayoutMode'];
+  bioButtonStyle?: ScrollySectionBlock['bioButtonStyle'];
+  bioShowNumbers?: boolean;
+  bioAvatarSize?: ScrollySectionBlock['bioAvatarSize'];
+  bioAvatarPosition?: string;
+  bioImageTransition?: ScrollySectionBlock['bioImageTransition'];
+  bioSurfaceColor?: string;
+  bioMutedColor?: string;
+  bioShowSocialRow?: boolean;
 }
 
 export interface SavedLayoutTheme {
@@ -440,8 +449,8 @@ export function PublicWebsiteView({
     if (!site) return;
     const headingFont = site.headingFont || 'Outfit';
     const bodyFont = site.bodyFont || 'Plus Jakarta Sans';
-    const fontFamilies = Array.from(new Set([headingFont, bodyFont]));
-    const fontQuery = fontFamilies.map(f => `family=${f.replace(/ /g, '+')}:wght@400;600;700;900`).join('&');
+    const fontFamilies = Array.from(new Set([headingFont, bodyFont, ...(site.navFontFamily ? [site.navFontFamily] : [])]));
+    const fontQuery = fontFamilies.map(f => `family=${f.replace(/ /g, '+')}:wght@300;400;500;600;700;900`).join('&');
     
     const linkId = 'site-google-fonts';
     let link = document.getElementById(linkId) as HTMLLinkElement;
@@ -452,7 +461,7 @@ export function PublicWebsiteView({
       document.head.appendChild(link);
     }
     link.href = `https://fonts.googleapis.com/css2?${fontQuery}&display=swap`;
-  }, [site?.headingFont, site?.bodyFont]);
+  }, [site?.headingFont, site?.bodyFont, site?.navFontFamily]);
 
   useEffect(() => {
     if (!site) return;
@@ -672,10 +681,15 @@ export function PublicWebsiteView({
 
   const logoH = site.logoHeight || 40;
 
+  const isLightMinimalNav =
+    navStyle === 'minimal_line_numbered' ||
+    site.scrollytellingThemeId === 'padrao-editorial' ||
+    site.theme_id === 'padrao-editorial';
+
   // Brand Logo or Name Renderer
   const renderBrand = () => (
     <div
-      className="flex items-center gap-2.5 cursor-pointer"
+      className="flex items-center gap-2.5 cursor-pointer shrink-0"
       onClick={(e) => {
         setActiveNav('home');
         setSelectedPost(null);
@@ -694,9 +708,14 @@ export function PublicWebsiteView({
           style={{ height: `${logoH}px`, maxHeight: '120px' }}
         />
       ) : (
-        <div className="flex items-center gap-2">
-          <Camera className="w-6 h-6" style={{ color: accentColor }} />
-          <span className="font-black text-base md:text-lg tracking-wider uppercase text-white" style={headingStyle}>
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <Camera className="w-5 h-5 shrink-0" style={{ color: isLightMinimalNav ? (site.primaryColor || '#475467') : accentColor }} />
+          <span
+            className={`font-semibold text-base md:text-lg tracking-wide whitespace-nowrap ${
+              isLightMinimalNav ? 'text-[#101828]' : 'font-black uppercase tracking-wider text-white'
+            }`}
+            style={headingStyle}
+          >
             {site.photographerName || site.title || 'Seu Nome'}
           </span>
         </div>
@@ -786,6 +805,7 @@ export function PublicWebsiteView({
     // Hero / Inicio
     if (lower.includes('hero') || lower.includes('inicio') || lower.includes('início') || lower.includes('home')) {
       el = document.getElementById('scrolly-sec-hero') ||
+           document.querySelector('[data-section-type="minimal_editorial_bio_hero"]') ||
            document.querySelector('[data-section-type="hero_curtain_reveal"]') ||
            document.querySelector('[data-section-type="hero_3d_perspective"]') ||
            document.querySelector('[data-section-type="hero_bipartite_curtain"]');
@@ -1079,6 +1099,95 @@ export function PublicWebsiteView({
           >
             {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
+        </header>
+      )}
+
+      {/* NAV STYLE 6: Minimalist Numbered Line Bar (Thema 1 Padrão) */}
+      {navStyle === 'minimal_line_numbered' && (
+        <header
+          className="sticky top-0 z-50 px-5 sm:px-8 py-4 border-b transition-all"
+          style={{
+            backgroundColor: site.navBgColor || 'rgba(255, 255, 255, 0.94)',
+            borderColor: site.navBorderColor || 'rgba(16, 24, 40, 0.12)',
+            backdropFilter: 'blur(12px)',
+            ...navFontFamilyStyle
+          }}
+        >
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+            {renderBrand()}
+
+            <nav className="hidden md:flex items-center gap-6 lg:gap-8">
+              {navMenuSections.map(({ sec, idx, label }) => {
+                const isActive = activeSection === sec.id;
+                const num = String(idx + 1).padStart(2, '0');
+                return (
+                  <button
+                    key={sec.id}
+                    type="button"
+                    onClick={() => handleNavSectionClick(sec.id, idx, sec.type)}
+                    className="group flex items-center gap-1.5 text-xs tracking-[0.12em] uppercase transition-opacity duration-200 hover:opacity-100 cursor-pointer whitespace-nowrap"
+                    style={{
+                      ...navFontFamilyStyle,
+                      fontSize: navFontSizeStyle || '12px',
+                      fontWeight: navFontWeightStyle || '500',
+                      color: isActive
+                        ? (site.navActiveTextColor || '#101828')
+                        : (site.navTextColor || '#475467'),
+                      opacity: isActive ? 1 : 0.82
+                    }}
+                  >
+                    <span className="tabular-nums text-[10px] opacity-55">{num}</span>
+                    <span className="border-b border-transparent group-hover:border-current pb-0.5 transition-colors">
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+              {blogPosts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setActiveNav('blog'); setSelectedPost(null); }}
+                  className="group flex items-center gap-1.5 text-xs tracking-[0.12em] uppercase transition-opacity duration-200 hover:opacity-100 cursor-pointer whitespace-nowrap"
+                  style={{
+                    ...navFontFamilyStyle,
+                    fontSize: navFontSizeStyle || '12px',
+                    fontWeight: navFontWeightStyle || '500',
+                    color: activeNav === 'blog'
+                      ? (site.navActiveTextColor || '#101828')
+                      : (site.navTextColor || '#475467')
+                  }}
+                >
+                  <span className="border-b border-transparent group-hover:border-current pb-0.5 transition-colors">
+                    Blog
+                  </span>
+                </button>
+              )}
+            </nav>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleNavCtaClick}
+                className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-[11px] font-medium uppercase tracking-[0.12em] border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm cursor-pointer whitespace-nowrap"
+                style={{
+                  backgroundColor: site.navCtaBgColor || 'transparent',
+                  color: site.navCtaTextColor || '#101828',
+                  borderColor: site.navCtaBgColor || 'rgba(16, 24, 40, 0.25)'
+                }}
+              >
+                <span>Reserve</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="md:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-black/5 active:scale-95 transition-all"
+                style={{ color: site.navTextColor || '#101828' }}
+                aria-label="Abrir Menu de Navegação"
+              >
+                {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              </button>
+            </div>
+          </div>
         </header>
       )}
 

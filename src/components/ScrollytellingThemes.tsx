@@ -23,6 +23,10 @@ import {
   CheckCircle2,
   MapPin,
   Globe,
+  Newspaper,
+  Users,
+  Briefcase,
+  Mail,
   X
 } from 'lucide-react';
 import { InteractiveQuoteFormBox, QuoteFormConfig } from './QuoteFormBuilder';
@@ -83,6 +87,7 @@ export function getAssociationSealLogoUrl(
 
 export type ScrollytellingThemeId =
   | 'classic'
+  | 'padrao-editorial'
   | 'lumina-editorial'
   | 'noir-cinema'
   | 'atelier-minimal'
@@ -94,6 +99,7 @@ export type ScrollytellingThemeId =
   | 'horizon-parallax';
 
 export type ScrollySectionType =
+  | 'minimal_editorial_bio_hero'
   | 'hero_curtain_reveal'
   | 'sticky_story_split'
   | 'horizontal_filmstrip'
@@ -114,6 +120,14 @@ export type ScrollySectionType =
   | 'instagram_feed_banner'
   | 'custom_quote_section'
   | 'custom_footer_section';
+
+export interface BioMenuLinkItem {
+  id: string;
+  label: string;
+  url: string;
+  icon?: 'whatsapp' | 'camera' | 'newspaper' | 'users' | 'briefcase' | 'heart' | 'globe' | 'mail';
+  number?: string;
+}
 
 export type ScrollyGalleryStyle =
   | 'editorial_grid'
@@ -206,13 +220,24 @@ export interface ScrollySectionBlock {
   subtitleSize?: 'sm' | 'base' | 'lg';
   overlayOpacity?: number;
   visualEffect?: 'none' | 'parallax' | 'ken_burns' | 'vignette' | 'particles' | 'film_grain';
-  navStyle?: 'floating_pill' | 'minimal_top' | 'centered_logo' | 'dark_editorial' | 'modern_split';
+  navStyle?: 'floating_pill' | 'minimal_top' | 'centered_logo' | 'dark_editorial' | 'modern_split' | 'minimal_line_numbered';
   navTransparency?: 'glass' | 'transparent' | 'solid';
   showButton?: boolean;
   buttonUrl?: string;
   secondaryButtonText?: string;
   secondaryButtonUrl?: string;
   logoUrl?: string;
+  // Parâmetros exclusivos do Thema 1 Padrão (Clean Editorial & Menu Numerado)
+  bioLayoutMode?: 'split_editorial' | 'centered_minimal';
+  bioButtonStyle?: 'line' | 'minimal_outline' | 'soft_surface';
+  bioShowNumbers?: boolean;
+  bioAvatarSize?: 'sm' | 'md' | 'lg';
+  bioAvatarPosition?: string;
+  bioImageTransition?: 'soft_zoom' | 'parallax_float' | 'bw_to_color' | 'curtain_fade';
+  bioSurfaceColor?: string;
+  bioMutedColor?: string;
+  bioShowSocialRow?: boolean;
+  bioMenuLinks?: BioMenuLinkItem[];
   // Parâmetros finos de cada efeito de Scrollytelling
   curtainSpeed?: 'normal' | 'fast' | 'slow';
   marqueeTopText?: string;
@@ -965,6 +990,85 @@ export function createSectionFromTemplate(
   const heroVid = site?.heroVideoUrl || '';
 
   switch (type) {
+    case 'minimal_editorial_bio_hero': {
+      const waRaw = (site?.socialLinks?.whatsapp || '').replace(/\D/g, '');
+      const waLink = waRaw
+        ? `https://wa.me/${waRaw}?text=${encodeURIComponent('Olá! Vim pelo seu site e gostaria de verificar disponibilidade e orçamento.')}`
+        : '#orcamento';
+      const avatarSrc =
+        site?.bioPhotoUrl ||
+        site?.heroImageUrl ||
+        DEFAULT_SCROLLYTELLING_CONFIG.heroImage;
+      const coverSrc =
+        site?.heroImageUrl ||
+        DEFAULT_SCROLLYTELLING_CONFIG.heroImage;
+      return {
+        id,
+        type,
+        sourceThemeName: '1. Padrão',
+        visible: true,
+        navLabel: 'INÍCIO',
+        kicker: site?.niche || 'FOTOGRAFIA AUTORAL',
+        title: site?.photographerName || site?.title || 'Seu Nome Fotografia',
+        subtitle: site?.heroSubtitle || 'Para quem valoriza o pra sempre ∞',
+        bodyText: site?.bioText || '',
+        headingFont: themeOverride?.headingFont || 'Raleway',
+        bodyFont: themeOverride?.bodyFont || 'Poppins',
+        bgColor: themeOverride?.bgColor || '#FFFFFF',
+        textColor: themeOverride?.textColor || '#101828',
+        accentColor: themeOverride?.accentColor || '#475467',
+        bioSurfaceColor: '#F9FAFB',
+        bioMutedColor: '#667085',
+        bioLayoutMode: 'split_editorial',
+        bioButtonStyle: 'line',
+        bioShowNumbers: true,
+        bioAvatarSize: 'lg',
+        bioAvatarPosition: '50% 15%',
+        bioImageTransition: 'soft_zoom',
+        bioShowSocialRow: true,
+        navStyle: 'minimal_line_numbered',
+        primaryImage: avatarSrc,
+        secondaryImage: coverSrc,
+        bioMenuLinks: [
+          {
+            id: 'bio_link_01',
+            label: 'RESERVE SUA DATA',
+            url: waLink,
+            icon: 'whatsapp',
+            number: '01'
+          },
+          {
+            id: 'bio_link_02',
+            label: 'NOSSO TRABALHO',
+            url: '#portfolio',
+            icon: 'camera',
+            number: '02'
+          },
+          {
+            id: 'bio_link_03',
+            label: 'NOSSO BLOG',
+            url: '#blog',
+            icon: 'newspaper',
+            number: '03'
+          },
+          {
+            id: 'bio_link_04',
+            label: 'PORTAL DO CLIENTE',
+            url: '#galerias',
+            icon: 'users',
+            number: '04'
+          },
+          {
+            id: 'bio_link_05',
+            label: 'ORÇAMENTO & CONTATO',
+            url: '#orcamento',
+            icon: 'briefcase',
+            number: '05'
+          }
+        ]
+      };
+    }
+
     case 'hero_curtain_reveal':
       return {
         id,
@@ -1460,14 +1564,38 @@ export function getThemePresetSections(
   const ov = {
     bgColor: meta.defaultBg,
     textColor: meta.defaultText,
-    accentColor: site?.primaryColor || meta.defaultAccent,
-    headingFont: site?.headingFont || meta.defaultHeadingFont,
-    bodyFont: site?.bodyFont || meta.defaultBodyFont
+    accentColor: themeId === 'padrao-editorial' ? meta.defaultAccent : (site?.primaryColor || meta.defaultAccent),
+    headingFont: themeId === 'padrao-editorial' ? meta.defaultHeadingFont : (site?.headingFont || meta.defaultHeadingFont),
+    bodyFont: themeId === 'padrao-editorial' ? meta.defaultBodyFont : (site?.bodyFont || meta.defaultBodyFont)
   };
 
   let baseSections: ScrollySectionBlock[] = [];
 
   switch (themeId) {
+    case 'padrao-editorial':
+      baseSections = [
+        createSectionFromTemplate('minimal_editorial_bio_hero', site, ov),
+        {
+          ...createSectionFromTemplate('interactive_gallery_showcase', site, ov),
+          navLabel: 'PORTFÓLIO',
+          bgColor: '#FFFFFF',
+          textColor: '#101828',
+          accentColor: '#475467',
+          galleryStyle: 'editorial_grid',
+          galleryAspect: 'aspect-[3/4]'
+        },
+        {
+          ...createSectionFromTemplate('sticky_story_split', site, ov),
+          navLabel: 'SOBRE',
+          bgColor: '#F9FAFB',
+          textColor: '#101828',
+          accentColor: '#475467',
+          storyTextSide: 'left',
+          storyParallaxSpeed: 'subtle'
+        }
+      ];
+      break;
+
     case 'lumina-editorial':
       baseSections = [
         createSectionFromTemplate('hero_curtain_reveal', site, ov),
@@ -1610,6 +1738,39 @@ export function getThemePresetSections(
         createSectionFromTemplate('cta_zoom_whatsapp', site, ov)
       ];
       break;
+  }
+
+  if (themeId === 'padrao-editorial') {
+    return [
+      ...baseSections,
+      {
+        ...createSectionFromTemplate('custom_quote_section', site, ov),
+        quoteEffect: 'minimal_studio_clean',
+        bgColor: '#F9FAFB',
+        textColor: '#101828',
+        accentColor: '#475467',
+        headingFont: ov.headingFont,
+        bodyFont: ov.bodyFont
+      },
+      {
+        ...createSectionFromTemplate('custom_footer_section', site, {
+          ...ov,
+          bgColor: '#FFFFFF',
+          textColor: '#101828',
+          accentColor: '#475467'
+        }),
+        footerEffect: 'minimal_bar',
+        footerLayout: 'minimal_row',
+        footerTextAlign: 'center',
+        footerPaddingSize: 'compact',
+        showFooterKicker: false,
+        showFooterSubtitle: false,
+        showAssociationSeals: false,
+        bgColor: '#FFFFFF',
+        textColor: '#101828',
+        accentColor: '#475467'
+      }
+    ];
   }
 
   return [
@@ -1985,6 +2146,571 @@ function renderBlockActionButtons(
         </button>
       )}
     </div>
+  );
+}
+
+// ============================================================================
+// BLOCK 0: THEMA 1 PADRÃO — MINIMAL EDITORIAL BIO & NUMBERED INDEX HERO
+// Clean light architectural palette (#FFFFFF / #F9FAFB / #101828 / #475467),
+// Raleway + Poppins typography, 01–05 hairline numbered menu & smooth image transitions
+// ============================================================================
+function BlockMinimalEditorialBioHero({
+  block,
+  site,
+  collections,
+  whatsappNumber,
+  onNavigateSection
+}: {
+  block: ScrollySectionBlock;
+  site: any;
+  collections?: any[];
+  whatsappNumber?: string;
+  onNavigateSection?: (sec: string) => void;
+}) {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const scrollProgress = useUniversalScrollProgress(sectionRef, 'enter-exit');
+  const parallaxY = useTransform(scrollProgress, [0, 1], [-18, 22]);
+  const parallaxScale = useTransform(scrollProgress, [0, 0.5, 1], [1.06, 1.0, 1.04]);
+
+  const bg = block.bgColor || '#FFFFFF';
+  const surface = block.bioSurfaceColor || '#F9FAFB';
+  const fg = block.textColor || '#101828';
+  const muted = block.bioMutedColor || '#667085';
+  const accent = block.accentColor || '#475467';
+  const hFont = block.headingFont || site?.headingFont || 'Raleway';
+  const bFont = block.bodyFont || site?.bodyFont || 'Poppins';
+
+  const layoutMode = block.bioLayoutMode || 'split_editorial';
+  const buttonStyle = block.bioButtonStyle || 'line';
+  const showNumbers = block.bioShowNumbers !== false;
+  const showSocialRow = block.bioShowSocialRow !== false;
+  const avatarSize = block.bioAvatarSize || 'lg';
+  const avatarPos = block.bioAvatarPosition || '50% 15%';
+  const imageTransition = block.bioImageTransition || 'soft_zoom';
+
+  const avatarDim =
+    avatarSize === 'sm' ? 'w-20 h-20' : avatarSize === 'md' ? 'w-24 h-24' : 'w-32 h-32';
+
+  const avatarUrl =
+    block.primaryImage ||
+    site?.bioPhotoUrl ||
+    site?.heroImageUrl ||
+    DEFAULT_SCROLLYTELLING_CONFIG.heroImage;
+
+  const showcaseSlides = React.useMemo(() => {
+    const candidates: Array<{ url: string; caption: string; subtitle?: string }> = [];
+    const seen = new Set<string>();
+    const pushIfValid = (url?: string, caption?: string, subtitle?: string) => {
+      if (!url || seen.has(url)) return;
+      seen.add(url);
+      candidates.push({
+        url,
+        caption: caption || site?.photographerName || 'Portfólio Editorial',
+        subtitle
+      });
+    };
+
+    if (block.secondaryImage) {
+      pushIfValid(block.secondaryImage, block.title || site?.photographerName, block.kicker || site?.niche);
+    }
+    if (site?.heroImageUrl && site.heroImageUrl !== block.secondaryImage) {
+      pushIfValid(site.heroImageUrl, site?.heroTitle || site?.photographerName, site?.niche);
+    }
+    if (Array.isArray(collections)) {
+      collections.slice(0, 6).forEach((col: any) => {
+        const cover = col?.coverImage || col?.photos?.[0]?.url;
+        if (cover) {
+          pushIfValid(cover, col?.title || 'Coleção', col?.category || col?.date || 'Ensaio');
+        }
+      });
+    }
+    if (Array.isArray(block.items)) {
+      block.items.forEach((it) => pushIfValid(it.url, it.caption, it.subtitle));
+    }
+    if (candidates.length === 0) {
+      pushIfValid(
+        DEFAULT_SCROLLYTELLING_CONFIG.heroImage,
+        block.title || site?.photographerName || 'Portfólio',
+        site?.niche || 'Fotografia Autoral'
+      );
+    }
+    return candidates;
+  }, [
+    block.secondaryImage,
+    block.title,
+    block.kicker,
+    block.items,
+    site?.heroImageUrl,
+    site?.heroTitle,
+    site?.photographerName,
+    site?.niche,
+    collections
+  ]);
+
+  const [activeSlideIdx, setActiveSlideIdx] = useState(0);
+
+  useEffect(() => {
+    if (showcaseSlides.length <= 1) return;
+    const timer = window.setInterval(() => {
+      setActiveSlideIdx((prev) => (prev + 1) % showcaseSlides.length);
+    }, 5500);
+    return () => window.clearInterval(timer);
+  }, [showcaseSlides.length]);
+
+  const safeSlideIdx = activeSlideIdx % Math.max(1, showcaseSlides.length);
+  const currentSlide = showcaseSlides[safeSlideIdx];
+
+  const waClean = (whatsappNumber || site?.socialLinks?.whatsapp || '').replace(/\D/g, '');
+  const defaultWaHref = waClean
+    ? `https://wa.me/${waClean}?text=${encodeURIComponent('Olá! Vim pelo seu site e gostaria de verificar disponibilidade e orçamento.')}`
+    : '#orcamento';
+
+  const menuLinks: BioMenuLinkItem[] =
+    block.bioMenuLinks && block.bioMenuLinks.length > 0
+      ? block.bioMenuLinks
+      : [
+          { id: 'bio_01', label: 'RESERVE SUA DATA', url: defaultWaHref, icon: 'whatsapp', number: '01' },
+          { id: 'bio_02', label: 'NOSSO TRABALHO', url: '#portfolio', icon: 'camera', number: '02' },
+          { id: 'bio_03', label: 'NOSSO BLOG', url: '#blog', icon: 'newspaper', number: '03' },
+          { id: 'bio_04', label: 'PORTAL DO CLIENTE', url: '#galerias', icon: 'users', number: '04' },
+          { id: 'bio_05', label: 'ORÇAMENTO & CONTATO', url: '#orcamento', icon: 'briefcase', number: '05' }
+        ];
+
+  const handleMenuLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, rawUrl: string) => {
+    const url = (rawUrl || '').trim();
+    if (!url || url === '#') {
+      e.preventDefault();
+      return;
+    }
+    if (url.startsWith('#')) {
+      e.preventDefault();
+      const target = url.slice(1).toLowerCase();
+      if (target === 'blog' && onNavigateSection) {
+        onNavigateSection('blog');
+        return;
+      }
+      const selectorMap: Record<string, string[]> = {
+        portfolio: ['[data-section-type="interactive_gallery_showcase"]', '#scrolly-sec-portfolio'],
+        galerias: ['[data-section-type="interactive_gallery_showcase"]', '[data-section-type="card_stacking_album"]'],
+        sobre: ['[data-section-type="sticky_story_split"]', '[data-section-type="manifesto_word_reveal"]'],
+        orcamento: ['[data-section-type="custom_quote_section"]', '[data-section-type="cta_zoom_whatsapp"]'],
+        contato: ['[data-section-type="custom_quote_section"]', '[data-section-type="custom_footer_section"]']
+      };
+      const selectors = selectorMap[target] || [`#${target}`];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+      }
+      return;
+    }
+    if (url.startsWith('whatsapp:')) {
+      e.preventDefault();
+      const msg = url.replace('whatsapp:', '').trim() || 'Olá! Gostaria de saber mais sobre disponibilidade e orçamento.';
+      const targetWa = waClean
+        ? `https://wa.me/${waClean}?text=${encodeURIComponent(msg)}`
+        : '#orcamento';
+      if (targetWa.startsWith('http')) {
+        window.open(targetWa, '_blank', 'noopener,noreferrer');
+      } else {
+        const q = document.querySelector('[data-section-type="custom_quote_section"]');
+        if (q) q.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  };
+
+  const renderMenuIcon = (iconName?: BioMenuLinkItem['icon']) => {
+    switch (iconName) {
+      case 'whatsapp':
+        return (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+            width="18"
+            height="18"
+            className="shrink-0"
+          >
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+          </svg>
+        );
+      case 'newspaper':
+        return <Newspaper className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />;
+      case 'users':
+        return <Users className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />;
+      case 'briefcase':
+        return <Briefcase className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />;
+      case 'heart':
+        return <Heart className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />;
+      case 'globe':
+        return <Globe className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />;
+      case 'mail':
+        return <Mail className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />;
+      case 'camera':
+      default:
+        return <Camera className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />;
+    }
+  };
+
+  const socialLinksList = [
+    {
+      key: 'instagram',
+      label: 'Instagram',
+      href: site?.socialLinks?.instagram
+        ? site.socialLinks.instagram.startsWith('http')
+          ? site.socialLinks.instagram
+          : `https://instagram.com/${site.socialLinks.instagram.replace('@', '').trim()}`
+        : '#portfolio',
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24" aria-hidden="true">
+          <path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077" />
+        </svg>
+      )
+    },
+    ...(site?.socialLinks?.tiktok
+      ? [
+          {
+            key: 'tiktok',
+            label: 'TikTok',
+            href: site.socialLinks.tiktok.startsWith('http')
+              ? site.socialLinks.tiktok
+              : `https://tiktok.com/@${site.socialLinks.tiktok.replace('@', '').trim()}`,
+            icon: (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="23" height="23" aria-hidden="true">
+                <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" />
+              </svg>
+            )
+          }
+        ]
+      : []),
+    ...(site?.socialLinks?.facebook
+      ? [
+          {
+            key: 'facebook',
+            label: 'Facebook',
+            href: site.socialLinks.facebook.startsWith('http')
+              ? site.socialLinks.facebook
+              : `https://facebook.com/${site.socialLinks.facebook.replace('@', '').trim()}`,
+            icon: (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24" aria-hidden="true">
+                <path d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z" />
+              </svg>
+            )
+          }
+        ]
+      : []),
+    {
+      key: 'whatsapp',
+      label: 'WhatsApp',
+      href: defaultWaHref,
+      icon: renderMenuIcon('whatsapp')
+    },
+    {
+      key: 'site',
+      label: 'Portfólio',
+      href: '#portfolio',
+      icon: <Globe className="w-6 h-6" strokeWidth={1.75} />
+    }
+  ];
+
+  const getMenuRowStyle = (): React.CSSProperties => {
+    if (buttonStyle === 'minimal_outline') {
+      return {
+        borderRadius: '0px',
+        backgroundColor: 'transparent',
+        color: fg,
+        border: `1px solid color-mix(in srgb, ${fg} 16%, transparent)`
+      };
+    }
+    if (buttonStyle === 'soft_surface') {
+      return {
+        borderRadius: '10px',
+        backgroundColor: surface,
+        color: fg,
+        border: `1px solid color-mix(in srgb, ${fg} 9%, transparent)`
+      };
+    }
+    return {
+      borderRadius: '0px',
+      backgroundColor: 'transparent',
+      color: fg,
+      borderBottom: `1px solid color-mix(in srgb, ${fg} 18%, transparent)`
+    };
+  };
+
+  const renderBioColumn = (isCentered: boolean) => (
+    <div
+      className={`flex w-full flex-col gap-7 ${
+        isCentered ? 'max-w-[560px] mx-auto items-center' : 'max-w-[520px] items-center lg:items-start'
+      }`}
+    >
+      <motion.header
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+        className={`flex flex-col gap-3.5 w-full ${
+          isCentered ? 'items-center text-center' : 'items-center text-center lg:items-start lg:text-left'
+        }`}
+      >
+        <div
+          className={`${avatarDim} relative rounded-full overflow-hidden shrink-0 transition-transform duration-500 ease-out hover:scale-[1.03]`}
+          style={{
+            border: `2px solid ${accent}`,
+            backgroundColor: surface
+          }}
+        >
+          <img
+            src={avatarUrl}
+            alt={block.title || site?.photographerName || 'Fotógrafo'}
+            className={`w-full h-full object-cover transition-all duration-700 ease-out ${
+              imageTransition === 'bw_to_color' ? 'grayscale-[85%] hover:grayscale-0' : ''
+            }`}
+            style={{ objectPosition: avatarPos }}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          {block.kicker && (
+            <p
+              className="text-[11px] uppercase tracking-[0.2em] font-medium"
+              style={{ color: accent }}
+            >
+              {block.kicker}
+            </p>
+          )}
+          <h1
+            className="text-2xl sm:text-3xl font-semibold tracking-tight leading-tight"
+            style={{ color: fg, fontFamily: `'${hFont}', sans-serif` }}
+          >
+            {block.title || site?.photographerName || site?.title || 'Seu Nome Fotografia'}
+          </h1>
+          {block.subtitle && (
+            <p
+              className="text-sm sm:text-[15px] leading-relaxed font-normal max-w-md"
+              style={{ color: muted }}
+            >
+              {block.subtitle}
+            </p>
+          )}
+        </div>
+      </motion.header>
+
+      <nav
+        aria-label="Menu principal editorial"
+        className={`flex w-full flex-col ${buttonStyle === 'line' ? 'gap-2.5' : 'gap-3'}`}
+      >
+        {menuLinks.map((item, idx) => {
+          const numStr = item.number || String(idx + 1).padStart(2, '0');
+          const isExternal = item.url.startsWith('http');
+          return (
+            <motion.a
+              key={item.id || `${idx}`}
+              href={item.url}
+              target={isExternal ? '_blank' : undefined}
+              rel={isExternal ? 'noopener noreferrer' : undefined}
+              onClick={(e) => handleMenuLinkClick(e, item.url)}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.06 * idx, ease: [0.22, 1, 0.36, 1] }}
+              style={getMenuRowStyle()}
+              className={`group flex w-full cursor-pointer items-center gap-3 text-sm font-medium transition-all duration-200 ${
+                buttonStyle === 'line'
+                  ? 'px-1 py-4 hover:opacity-85'
+                  : 'px-4 py-4 hover:-translate-y-0.5 hover:shadow-sm'
+              }`}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-3 justify-start text-xs tracking-[0.12em] uppercase">
+                <span
+                  className="transition-transform duration-200 group-hover:scale-105"
+                  style={{ color: accent }}
+                >
+                  {renderMenuIcon(item.icon)}
+                </span>
+                <span className="break-words transition-transform duration-200 group-hover:translate-x-1">
+                  {item.label}
+                </span>
+              </span>
+              {showNumbers && (
+                <span
+                  aria-hidden="true"
+                  className="shrink-0 text-xs tabular-nums opacity-60 transition-opacity duration-200 group-hover:opacity-100"
+                >
+                  {numStr}
+                </span>
+              )}
+            </motion.a>
+          );
+        })}
+      </nav>
+
+      {showSocialRow && (
+        <div
+          className={`flex w-full flex-wrap items-center gap-4 pt-1 ${
+            isCentered ? 'justify-center' : 'justify-center lg:justify-start'
+          }`}
+        >
+          {socialLinksList.map((soc) => {
+            const isExt = soc.href.startsWith('http');
+            return (
+              <a
+                key={soc.key}
+                href={soc.href}
+                target={isExt ? '_blank' : undefined}
+                rel={isExt ? 'noopener noreferrer' : undefined}
+                onClick={(e) => handleMenuLinkClick(e, soc.href)}
+                aria-label={soc.label}
+                className="flex cursor-pointer items-center justify-center p-1 transition-all duration-200 hover:-translate-y-0.5 hover:opacity-75"
+                style={{ color: accent }}
+              >
+                {soc.icon}
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderShowcaseFrame = (compact = false) => {
+    if (!currentSlide) return null;
+    return (
+      <div className={`w-full ${compact ? 'max-w-[560px] mx-auto mt-6' : 'w-full'}`}>
+        <div
+          className={`group relative w-full overflow-hidden ${
+            compact ? 'aspect-[16/10]' : 'aspect-[4/5] max-h-[640px]'
+          }`}
+          style={{
+            backgroundColor: surface,
+            border: `1px solid color-mix(in srgb, ${fg} 10%, transparent)`
+          }}
+        >
+          <motion.div
+            key={`${currentSlide.url}-${safeSlideIdx}-${imageTransition}`}
+            initial={
+              imageTransition === 'curtain_fade'
+                ? { opacity: 0.2, clipPath: 'inset(0 0 100% 0)' }
+                : { opacity: 0, scale: imageTransition === 'soft_zoom' ? 1.05 : 1.01 }
+            }
+            animate={
+              imageTransition === 'curtain_fade'
+                ? { opacity: 1, clipPath: 'inset(0 0 0% 0)' }
+                : { opacity: 1, scale: 1 }
+            }
+            transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
+            style={
+              imageTransition === 'parallax_float'
+                ? { y: parallaxY, scale: parallaxScale }
+                : undefined
+            }
+            className="w-full h-full"
+          >
+            <img
+              src={currentSlide.url}
+              alt={currentSlide.caption}
+              className={`w-full h-full object-cover transition-all duration-700 ease-out ${
+                imageTransition === 'bw_to_color'
+                  ? 'grayscale-[88%] contrast-[1.06] group-hover:grayscale-0 group-hover:scale-[1.03]'
+                  : 'group-hover:scale-[1.04]'
+              }`}
+            />
+          </motion.div>
+
+          <div
+            className="flex items-center justify-between px-4 py-3 text-xs border-t"
+            style={{
+              backgroundColor: bg,
+              color: fg,
+              borderColor: `color-mix(in srgb, ${fg} 12%, transparent)`
+            }}
+          >
+            <div className="min-w-0 pr-3">
+              <p
+                className="text-xs font-medium tracking-[0.06em] uppercase truncate"
+                style={{ fontFamily: `'${hFont}', sans-serif` }}
+              >
+                {currentSlide.caption}
+              </p>
+              {currentSlide.subtitle && (
+                <p className="text-[11px] truncate" style={{ color: muted }}>
+                  {currentSlide.subtitle}
+                </p>
+              )}
+            </div>
+
+            {showcaseSlides.length > 1 && (
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[11px] tabular-nums opacity-60">
+                  {String(safeSlideIdx + 1).padStart(2, '0')} / {String(showcaseSlides.length).padStart(2, '0')}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveSlideIdx((prev) => (prev - 1 + showcaseSlides.length) % showcaseSlides.length);
+                  }}
+                  aria-label="Foto anterior"
+                  className="p-1.5 transition-opacity hover:opacity-65 cursor-pointer"
+                  style={{ color: accent }}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveSlideIdx((prev) => (prev + 1) % showcaseSlides.length);
+                  }}
+                  aria-label="Próxima foto"
+                  className="p-1.5 transition-opacity hover:opacity-65 cursor-pointer"
+                  style={{ color: accent }}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <section
+      ref={sectionRef}
+      style={
+        {
+          '--bio-accent': accent,
+          '--bio-bg': bg,
+          '--bio-fg': fg,
+          '--bio-muted': muted,
+          '--bio-surface': surface,
+          '--bio-title-font': `'${hFont}', sans-serif`,
+          backgroundColor: bg,
+          color: fg,
+          fontFamily: `'${bFont}', sans-serif`
+        } as React.CSSProperties
+      }
+      className="relative w-full min-h-[82vh] flex items-center justify-center px-5 sm:px-8 py-12 md:py-16"
+    >
+      {layoutMode === 'centered_minimal' ? (
+        <div className="w-full max-w-[560px] mx-auto flex flex-col items-center gap-6">
+          {renderBioColumn(true)}
+          {showcaseSlides.length > 0 && renderShowcaseFrame(true)}
+        </div>
+      ) : (
+        <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 items-center">
+          <div className="lg:col-span-6 flex justify-center lg:justify-start">
+            {renderBioColumn(false)}
+          </div>
+          <div className="lg:col-span-6">
+            {renderShowcaseFrame(false)}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -5186,6 +5912,7 @@ export function ModularScrollytellingComposer({
   config,
   collections = [],
   onOpenGallery,
+  onNavigateSection,
   onSelectSection,
   selectedSectionId,
   onUpdateQuoteConfig,
@@ -5226,6 +5953,16 @@ export function ModularScrollytellingComposer({
       {sections.map((block, idx) => {
         const renderBlock = () => {
           switch (block.type as string) {
+            case 'minimal_editorial_bio_hero':
+              return (
+                <BlockMinimalEditorialBioHero
+                  block={block}
+                  site={site}
+                  collections={collections}
+                  whatsappNumber={config.whatsappNumber}
+                  onNavigateSection={onNavigateSection}
+                />
+              );
             case 'hero_curtain_reveal':
               return (
                 <BlockHeroCurtainReveal

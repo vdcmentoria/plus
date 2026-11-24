@@ -7,7 +7,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import fs from 'fs';
 import JSZip from 'jszip';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import {
   DISPOSABLE_EMAIL_DOMAINS,
   extractEmailDomain,
@@ -50,6 +50,8 @@ async function startServer() {
   const blogsFile = path.join(dataDir, 'blogs.json');
   const leadsFile = path.join(dataDir, 'leads.json');
   const bannedIpsFile = path.join(dataDir, 'banned_ips.json');
+  const styleProfilesFile = path.join(dataDir, 'style_profiles.json');
+  const biosFile = path.join(dataDir, 'bios.json');
 
   // Seeds (new accounts start with 0 galleries)
   const initialCollections: any[] = [];
@@ -67,7 +69,8 @@ async function startServer() {
   if (!fs.existsSync(settingsFile)) {
     fs.writeFileSync(settingsFile, JSON.stringify({
       defaultTrialDays: 7,
-      defaultInitialPlan: "Basic (3 GB)"
+      defaultInitialPlan: "Basic (3 GB)",
+      hiddenNavMenus: ["ai-studio"]
     }, null, 2), 'utf8');
   }
   if (!fs.existsSync(sitesFile)) {
@@ -81,6 +84,33 @@ async function startServer() {
   }
   if (!fs.existsSync(bannedIpsFile)) {
     fs.writeFileSync(bannedIpsFile, JSON.stringify({}, null, 2), 'utf8');
+  }
+  if (!fs.existsSync(styleProfilesFile)) {
+    fs.writeFileSync(styleProfilesFile, JSON.stringify([], null, 2), 'utf8');
+  }
+  if (!fs.existsSync(biosFile)) {
+    fs.writeFileSync(biosFile, JSON.stringify([], null, 2), 'utf8');
+  }
+
+  function readStyleProfiles(): any[] {
+    try {
+      if (fs.existsSync(styleProfilesFile)) {
+        const parsed = JSON.parse(fs.readFileSync(styleProfilesFile, 'utf8'));
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error('Error reading style_profiles.json:', e);
+    }
+    return [];
+  }
+
+  function writeStyleProfiles(data: any[]) {
+    try {
+      fs.mkdirSync(path.dirname(styleProfilesFile), { recursive: true });
+      fs.writeFileSync(styleProfilesFile, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Error writing style_profiles.json:', e);
+    }
   }
 
   // Helper to read/write JSON db beautifully
@@ -218,15 +248,43 @@ async function startServer() {
   }
 
   // Helper to read/write JSON db beautifully
+  function readBios(): any[] {
+    try {
+      if (fs.existsSync(biosFile)) {
+        const parsed = JSON.parse(fs.readFileSync(biosFile, 'utf8'));
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error('Error reading bios.json:', e);
+    }
+    return [];
+  }
+
+  function writeBios(data: any[]) {
+    try {
+      fs.mkdirSync(path.dirname(biosFile), { recursive: true });
+      fs.writeFileSync(biosFile, JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Error writing bios.json:', e);
+    }
+  }
+
   function readSettings() {
     try {
       if (fs.existsSync(settingsFile)) {
-        return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        const parsed = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        return {
+          defaultTrialDays: 7,
+          defaultInitialPlan: "Basic (3 GB)",
+          hiddenNavMenus: Array.isArray(parsed.hiddenNavMenus) ? parsed.hiddenNavMenus : ["ai-studio"],
+          ...parsed,
+          ...(Array.isArray(parsed.hiddenNavMenus) ? { hiddenNavMenus: parsed.hiddenNavMenus } : { hiddenNavMenus: ["ai-studio"] })
+        };
       }
     } catch (e) {
       console.error('Error reading settings:', e);
     }
-    return { defaultTrialDays: 7, defaultInitialPlan: "Basic (3 GB)" };
+    return { defaultTrialDays: 7, defaultInitialPlan: "Basic (3 GB)", hiddenNavMenus: ["ai-studio"] };
   }
 
   function writeSettings(data: any) {
@@ -2144,16 +2202,145 @@ async function startServer() {
 
   app.post('/api/settings', (req, res) => {
     try {
-      const data = req.body;
+      const data = req.body || {};
       const settings = readSettings();
       const updated = {
         ...settings,
         ...data,
         defaultTrialDays: Number(data.defaultTrialDays !== undefined ? data.defaultTrialDays : settings.defaultTrialDays),
-        defaultInitialPlan: data.defaultInitialPlan || settings.defaultInitialPlan
+        defaultInitialPlan: data.defaultInitialPlan || settings.defaultInitialPlan,
+        hiddenNavMenus: Array.isArray(data.hiddenNavMenus)
+          ? data.hiddenNavMenus.filter((m: any) => typeof m === 'string')
+          : settings.hiddenNavMenus
       };
       writeSettings(updated);
       return res.json(updated);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==========================================================
+  // LINK NA BIO ENDPOINTS (Dedicated Instagram / Social Bio Pages)
+  // ==========================================================
+  app.get('/api/bios', (req, res) => {
+    try {
+      const ownerId = String(req.query.ownerId || '').trim().toLowerCase();
+      const bios = readBios();
+      if (ownerId && ownerId !== 'default') {
+        const filtered = bios.filter((b: any) => String(b.ownerId || '').toLowerCase() === ownerId);
+        return res.json(filtered);
+      }
+      return res.json(bios);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/bios/lookup', (req, res) => {
+    try {
+      const rawSlug = String(req.query.slug || '').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+      if (!rawSlug) {
+        return res.status(400).json({ error: 'Slug inválido' });
+      }
+      const bios = readBios();
+      const idx = bios.findIndex((b: any) => String(b.slug || '').toLowerCase() === rawSlug);
+      if (idx === -1) {
+        return res.status(404).json({ error: 'Link na Bio não encontrado' });
+      }
+      // Increment lightweight views count
+      bios[idx] = {
+        ...bios[idx],
+        viewsCount: Number(bios[idx].viewsCount || 0) + 1
+      };
+      writeBios(bios);
+      return res.json(bios[idx]);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/bios', (req, res) => {
+    try {
+      const payload = req.body || {};
+      const ownerId = String(payload.ownerId || '').trim();
+      if (!ownerId) {
+        return res.status(400).json({ error: 'ownerId é obrigatório.' });
+      }
+      const cleanSlug = String(payload.slug || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9-_]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60);
+
+      if (!cleanSlug) {
+        return res.status(400).json({ error: 'Defina um endereço (slug) válido para seu Link na Bio.' });
+      }
+
+      const bios = readBios();
+      const conflict = bios.find(
+        (b: any) =>
+          String(b.slug || '').toLowerCase() === cleanSlug &&
+          String(b.ownerId || '').toLowerCase() !== ownerId.toLowerCase() &&
+          b.id !== payload.id
+      );
+      if (conflict) {
+        return res.status(409).json({ error: `O endereço "/bio/${cleanSlug}" já está em uso por outro estúdio.` });
+      }
+
+      const existingIdx = bios.findIndex(
+        (b: any) =>
+          (payload.id && b.id === payload.id) ||
+          String(b.ownerId || '').toLowerCase() === ownerId.toLowerCase()
+      );
+
+      const now = new Date().toISOString();
+      const savedBio = {
+        ...(existingIdx >= 0 ? bios[existingIdx] : {}),
+        ...payload,
+        id: payload.id || (existingIdx >= 0 ? bios[existingIdx].id : `bio_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`),
+        ownerId,
+        slug: cleanSlug,
+        updatedAt: now,
+        createdAt: existingIdx >= 0 ? (bios[existingIdx].createdAt || now) : now
+      };
+
+      if (existingIdx >= 0) {
+        bios[existingIdx] = savedBio;
+      } else {
+        bios.push(savedBio);
+      }
+      writeBios(bios);
+      return res.json(savedBio);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/bios/:bioId/click', (req, res) => {
+    try {
+      const { bioId } = req.params;
+      const { linkId } = req.body || {};
+      const bios = readBios();
+      const idx = bios.findIndex((b: any) => b.id === bioId);
+      if (idx === -1) {
+        return res.status(404).json({ error: 'Bio não encontrada' });
+      }
+      const bio = bios[idx];
+      const nextLinks = Array.isArray(bio.links)
+        ? bio.links.map((l: any) =>
+            l.id === linkId ? { ...l, clicks: Number(l.clicks || 0) + 1 } : l
+          )
+        : [];
+      bios[idx] = {
+        ...bio,
+        totalClicks: Number(bio.totalClicks || 0) + 1,
+        links: nextLinks
+      };
+      writeBios(bios);
+      return res.json({ ok: true, totalClicks: bios[idx].totalClicks });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -2291,29 +2478,144 @@ async function startServer() {
     }
   });
 
-  app.get('/api/lightroom/download', async (req, res) => {
-    try {
-      const zip = new JSZip();
-      const pluginDir = zip.folder("frameplus.lrplugin");
+  function buildLightroomPluginFiles() {
+    const infoLua = `return {
+\tLrSdkVersion = 5.0,
+\tLrMinSdkVersion = 5.0,
 
-      const infoLua = `return {
-	LrSdkVersion = 5.0,
-	LrMinSdkVersion = 5.0,
+\tLrToolkitIdentifier = 'click.framepro.frameplusai',
+\tLrPluginName = "Frame+ AI Studio & Gallery",
+\tAppName = "Frame+",
+\tAuthor = "Frame+ Team",
+\tDeveloper = "Frame+",
 
-	AppName = "Frame+",
-	Author = "Frame+ Team",
-	Developer = "Frame+",
-	
-	ExportProvider = {
-		title = "Frame+ Art Gallery",
-		file = "ExportProvider.lua",
-		hideSections = { 'fileNaming' },
-	},
+\tLrExportMenuItems = {
+\t\t{
+\t\t\ttitle = "Editar com Frame Plus IA",
+\t\t\tfile = "EditWithFramePlusAI.lua",
+\t\t},
+\t},
 
-	VERSION = { major=1, minor=0, revision=0, build=1000 },
+\tLrExportServiceProvider = {
+\t\ttitle = "Frame+ Art Gallery",
+\t\tfile = "ExportProvider.lua",
+\t\thideSections = { 'fileNaming' },
+\t},
+
+\tExportProvider = {
+\t\ttitle = "Frame+ Art Gallery",
+\t\tfile = "ExportProvider.lua",
+\t\thideSections = { 'fileNaming' },
+\t},
+
+\tVERSION = { major=2, minor=0, revision=0, build=2000 },
 }`;
 
-      const exportProviderLua = `local LrView = import 'LrView'
+    const editWithFramePlusLua = `local LrApplication = import 'LrApplication'
+local LrDialogs = import 'LrDialogs'
+local LrTasks = import 'LrTasks'
+local LrHttp = import 'LrHttp'
+local LrJson = import 'LrJson'
+local LrPathUtils = import 'LrPathUtils'
+local LrProgressScope = import 'LrProgressScope'
+
+local BRIDGE_URL = "http://localhost:54321/api/lr-bridge/process"
+
+LrTasks.startAsyncTask(function()
+\tlocal catalog = LrApplication.activeCatalog()
+\tlocal targetPhotos = catalog:getTargetPhotos()
+
+\tif not targetPhotos or #targetPhotos == 0 then
+\t\tLrDialogs.message("Frame+ AI Studio", "Selecione uma ou mais fotos no Grid do Lightroom antes de iniciar a edição por IA.", "info")
+\t\treturn
+\tend
+
+\tlocal progress = LrProgressScope({
+\t\ttitle = "Frame+ AI Studio — Analisando " .. #targetPhotos .. " fotos",
+\t})
+
+\tlocal payloadPhotos = {}
+\tfor _, photo in ipairs(targetPhotos) do
+\t\tlocal path = photo:getRawMetadata("path")
+\t\tlocal fileName = LrPathUtils.leafName(path or "")
+\t\ttable.insert(payloadPhotos, {
+\t\t\tlocalIdentifier = tostring(photo.localIdentifier),
+\t\t\tpath = path,
+\t\t\tfileName = fileName,
+\t\t\tisRaw = photo:getRawMetadata("isVirtualCopy") == false,
+\t\t\tfileFormat = photo:getRawMetadata("fileFormat"),
+\t\t})
+\tend
+
+\tlocal body = LrJson.toString({
+\t\taction = "analyze_and_edit",
+\t\tpresetProfile = "Clean & Natural",
+\t\tphotos = payloadPhotos,
+\t})
+
+\tlocal headers = {
+\t\t{ field = "Content-Type", value = "application/json" },
+\t}
+
+\tprogress:setCaption("Conectando ao App Local Frame+ (localhost:54321)...")
+\tlocal response, resHeaders = LrHttp.post(BRIDGE_URL, body, headers, "POST", 30)
+
+\tif not response then
+\t\tprogress:done()
+\t\tLrDialogs.showError(
+\t\t\t"Não foi possível conectar ao App Local Frame+ em http://localhost:54321.\\n\\n" ..
+\t\t\t"Dica: Você também pode usar o Frame Plus AI Studio direto no navegador (Aba Estúdio IA) selecionando a pasta das suas fotos para gerar os arquivos .XMP e depois clicar em Metadados > Ler Metadados dos Arquivos no Lightroom."
+\t\t)
+\t\treturn
+\tend
+
+\tlocal ok, result = pcall(LrJson.toTable, response)
+\tif not ok or type(result) ~= "table" or not result.edits then
+\t\tprogress:done()
+\t\tLrDialogs.showError("Resposta inválida do Frame+ AI Bridge: " .. tostring(response))
+\t\treturn
+\tend
+
+\tlocal updatedCount = 0
+\tcatalog:withWriteAccessDo("Aplicar Edições Frame+ AI", function()
+\t\tfor i, photo in ipairs(targetPhotos) do
+\t\t\tif progress:isCanceled() then break end
+\t\t\tprogress:setPortionComplete(i, #targetPhotos)
+
+\t\t\tlocal idStr = tostring(photo.localIdentifier)
+\t\t\tlocal edit = result.edits[idStr]
+\t\t\tif edit then
+\t\t\t\tprogress:setCaption("Aplicando sliders em: " .. LrPathUtils.leafName(photo:getRawMetadata("path") or ""))
+\t\t\t\tif edit.useSidecarXmp then
+\t\t\t\t\tphoto:readMetadata()
+\t\t\t\telse
+\t\t\t\t\tphoto:applyDevelopSettings({
+\t\t\t\t\t\tTemperature = edit.temperature or 5500,
+\t\t\t\t\t\tTint = edit.tint or 0,
+\t\t\t\t\t\tExposure2012 = edit.exposure or 0,
+\t\t\t\t\t\tContrast2012 = edit.contrast or 0,
+\t\t\t\t\t\tHighlights2012 = edit.highlights or 0,
+\t\t\t\t\t\tShadows2012 = edit.shadows or 0,
+\t\t\t\t\t\tWhites2012 = edit.whites or 0,
+\t\t\t\t\t\tBlacks2012 = edit.blacks or 0,
+\t\t\t\t\t\tClarity2012 = edit.clarity or 0,
+\t\t\t\t\t\tVibrance = edit.vibrance or 0,
+\t\t\t\t\t\tSaturation = edit.saturation or 0,
+\t\t\t\t\t})
+\t\t\t\t\tif edit.cullingScore and edit.cullingScore >= 1 and edit.cullingScore <= 5 then
+\t\t\t\t\t\tphoto:setRawMetadata("rating", math.floor(edit.cullingScore))
+\t\t\t\t\tend
+\t\t\t\tend
+\t\t\t\tupdatedCount = updatedCount + 1
+\t\t\tend
+\t\tend
+\tend)
+
+\tprogress:done()
+\tLrDialogs.message("Frame+ AI Studio", string.format("%d foto(s) editada(s) automaticamente no catálogo!", updatedCount), "info")
+end)`;
+
+    const exportProviderLua = `local LrView = import 'LrView'
 local LrHttp = import 'LrHttp'
 local LrJson = import 'LrJson'
 local LrDialogs = import 'LrDialogs'
@@ -2322,208 +2624,248 @@ local LrPathUtils = import 'LrPathUtils'
 local LrFileUtils = import 'LrFileUtils'
 local LrErrors = import 'LrErrors'
 
+local bind = LrView.bind
 local exportServiceProvider = {}
 
 exportServiceProvider.exportPresetFields = {
-	{ key = 'serverUrl', default = "" },
-	{ key = 'userToken', default = "" },
-	{ key = 'selectedCollectionId', default = "new" },
-	{ key = 'newCollectionTitle', default = "" },
+\t{ key = 'serverUrl', default = "" },
+\t{ key = 'userToken', default = "" },
+\t{ key = 'selectedCollectionId', default = "new" },
+\t{ key = 'newCollectionTitle', default = "" },
 }
 
 function exportServiceProvider.sectionsForGrp( f, propertyTable )
-	local function updateCollections()
-		local serverUrl = propertyTable.serverUrl
-		local userToken = propertyTable.userToken
+\tlocal function updateCollections()
+\t\tlocal serverUrl = propertyTable.serverUrl
+\t\tlocal userToken = propertyTable.userToken
 
-		if not serverUrl or serverUrl == "" or not userToken or userToken == "" then
-			propertyTable.collectionsItems = { { title = "Insira suas credenciais primeiro...", value = "new" } }
-			return
-		end
+\t\tif not serverUrl or serverUrl == "" or not userToken or userToken == "" then
+\t\t\tpropertyTable.collectionsItems = { { title = "Insira suas credenciais primeiro...", value = "new" } }
+\t\t\treturn
+\t\tend
 
-		LrTasks.startAsyncTask( function()
-			if not string.match(serverUrl, "^http") then
-				serverUrl = "https://" .. serverUrl
-			end
-			serverUrl = string.gsub(serverUrl, "/+$", "")
+\t\tLrTasks.startAsyncTask( function()
+\t\t\tif not string.match(serverUrl, "^http") then
+\t\t\t\tserverUrl = "https://" .. serverUrl
+\t\t\tend
+\t\t\tserverUrl = string.gsub(serverUrl, "/+$", "")
 
-			local url = serverUrl .. "/api/lightroom/collections?ownerId=" .. userToken
-			local response, headers = LrHttp.get( url )
-			
-			if response then
-				local ok, list = pcall( LrJson.toTable, response )
-				if ok and type(list) == 'table' then
-					local items = { { title = "[ Criar Nova Galeria ]", value = "new" } }
-					for _, col in ipairs(list) do
-						table.insert(items, { title = col.title, value = col.id })
-					end
-					propertyTable.collectionsItems = items
-				else
-					propertyTable.collectionsItems = { { title = "Nenhuma galeria encontrada.", value = "new" } }
-				end
-			else
-				propertyTable.collectionsItems = { { title = "Erro ao conectar com o servidor.", value = "new" } }
-			end
-		end )
-	end
+\t\t\tlocal url = serverUrl .. "/api/lightroom/collections?ownerId=" .. userToken
+\t\t\tlocal response, headers = LrHttp.get( url )
+\t\t\t
+\t\t\tif response then
+\t\t\t\tlocal ok, list = pcall( LrJson.toTable, response )
+\t\t\t\tif ok and type(list) == 'table' then
+\t\t\t\t\tlocal items = { { title = "[ Criar Nova Galeria ]", value = "new" } }
+\t\t\t\t\tfor _, col in ipairs(list) do
+\t\t\t\t\t\ttable.insert(items, { title = col.title, value = col.id })
+\t\t\t\t\tend
+\t\t\t\t\tpropertyTable.collectionsItems = items
+\t\t\t\telse
+\t\t\t\t\tpropertyTable.collectionsItems = { { title = "Nenhuma galeria encontrada.", value = "new" } }
+\t\t\t\tend
+\t\t\telse
+\t\t\t\tpropertyTable.collectionsItems = { { title = "Erro ao conectar com o servidor.", value = "new" } }
+\t\t\tend
+\t\tend )
+\tend
 
-	if not propertyTable.collectionsItems then
-		propertyTable.collectionsItems = { { title = "[ Criar Nova Galeria ]", value = "new" } }
-		updateCollections()
-	end
+\tif not propertyTable.collectionsItems then
+\t\tpropertyTable.collectionsItems = { { title = "[ Criar Nova Galeria ]", value = "new" } }
+\t\tupdateCollections()
+\tend
 
-	propertyTable:addObserver( 'serverUrl', updateCollections )
-	propertyTable:addObserver( 'userToken', updateCollections )
+\tpropertyTable:addObserver( 'serverUrl', updateCollections )
+\tpropertyTable:addObserver( 'userToken', updateCollections )
 
-	return {
-		{
-			title = "Autenticação Frame+",
-			f:row {
-				f:static_text { title = "Endereço do Servidor:", width = 130 },
-				f:edit_field { value = bind 'serverUrl', fill_horizontal = 1, placeholder = "https://sua-galeria.com" },
-			},
-			f:row {
-				f:static_text { title = "Token (UID do Usuário):", width = 130 },
-				f:edit_field { value = bind 'userToken', fill_horizontal = 1, placeholder = "Copie do seu perfil no Frame+" },
-			},
-		},
-		{
-			title = "Destino da Exportação",
-			f:row {
-				f:static_text { title = "Galeria / Coleção:", width = 130 },
-				f:popup_menu {
-					value = bind 'selectedCollectionId',
-					items = bind 'collectionsItems',
-					fill_horizontal = 1,
-				},
-			},
-			f:row {
-				visible = bind {
-					key = 'selectedCollectionId',
-					transform = function( value )
-						return value == 'new'
-					end
-				},
-				f:static_text { title = "Nome da Nova Galeria:", width = 130 },
-				f:edit_field { value = bind 'newCollectionTitle', fill_horizontal = 1, placeholder = "Ex: Casamento Gabriela e Lucas" },
-			},
-		}
-	}
+\treturn {
+\t\t{
+\t\t\ttitle = "Autenticação Frame+",
+\t\t\tf:row {
+\t\t\t\tf:static_text { title = "Endereço do Servidor:", width = 130 },
+\t\t\t\tf:edit_field { value = bind 'serverUrl', fill_horizontal = 1, placeholder = "https://site.framepro.click" },
+\t\t\t},
+\t\t\tf:row {
+\t\t\t\tf:static_text { title = "Token (UID do Usuário):", width = 130 },
+\t\t\t\tf:edit_field { value = bind 'userToken', fill_horizontal = 1, placeholder = "Copie do seu perfil no Frame+" },
+\t\t\t},
+\t\t},
+\t\t{
+\t\t\ttitle = "Destino da Exportação",
+\t\t\tf:row {
+\t\t\t\tf:static_text { title = "Galeria / Coleção:", width = 130 },
+\t\t\t\tf:popup_menu {
+\t\t\t\t\tvalue = bind 'selectedCollectionId',
+\t\t\t\t\titems = bind 'collectionsItems',
+\t\t\t\t\tfill_horizontal = 1,
+\t\t\t\t},
+\t\t\t},
+\t\t\tf:row {
+\t\t\t\tvisible = bind {
+\t\t\t\t\tkey = 'selectedCollectionId',
+\t\t\t\t\ttransform = function( value )
+\t\t\t\t\t\treturn value == 'new'
+\t\t\t\t\tend
+\t\t\t\t},
+\t\t\t\tf:static_text { title = "Nome da Nova Galeria:", width = 130 },
+\t\t\t\tf:edit_field { value = bind 'newCollectionTitle', fill_horizontal = 1, placeholder = "Ex: Casamento Gabriela e Lucas" },
+\t\t\t},
+\t\t}
+\t}
 end
 
 function exportServiceProvider.processRenderedPhotos( functionContext, exportContext )
-	local exportSession = exportContext.exportSession
-	local propertyTable = exportContext.propertyTable
-	
-	local serverUrl = propertyTable.serverUrl
-	local userToken = propertyTable.userToken
-	local collectionId = propertyTable.selectedCollectionId
-	
-	if not serverUrl or serverUrl == "" or not userToken or userToken == "" then
-		LrDialogs.showError( "Por favor, preencha o endereço do servidor e seu token de acesso." )
-		return
-	end
+\tlocal exportSession = exportContext.exportSession
+\tlocal propertyTable = exportContext.propertyTable
+\t
+\tlocal serverUrl = propertyTable.serverUrl
+\tlocal userToken = propertyTable.userToken
+\tlocal collectionId = propertyTable.selectedCollectionId
+\t
+\tif not serverUrl or serverUrl == "" or not userToken or userToken == "" then
+\t\tLrDialogs.showError( "Por favor, preencha o endereço do servidor e seu token de acesso." )
+\t\treturn
+\tend
 
-	if not string.match(serverUrl, "^http") then
-		serverUrl = "https://" .. serverUrl
-	end
-	serverUrl = string.gsub(serverUrl, "/+$", "")
+\tif not string.match(serverUrl, "^http") then
+\t\tserverUrl = "https://" .. serverUrl
+\tend
+\tserverUrl = string.gsub(serverUrl, "/+$", "")
 
-	local nPhotos = exportSession:getRenderedPhotoCount()
-	local progressScope = exportContext:configureProgress{
-		title = "Enviando fotos para o Frame+...",
-	}
+\tlocal nPhotos = exportSession:getRenderedPhotoCount()
+\tlocal progressScope = exportContext:configureProgress{
+\t\ttitle = "Enviando fotos para o Frame+...",
+\t}
 
-	if collectionId == 'new' then
-		local newTitle = propertyTable.newCollectionTitle
-		if not newTitle or newTitle == "" then
-			newTitle = "Exportação Lightroom " .. os.date("%d/%m/%Y %H:%M")
-		end
+\tif collectionId == 'new' then
+\t\tlocal newTitle = propertyTable.newCollectionTitle
+\t\tif not newTitle or newTitle == "" then
+\t\t\tnewTitle = "Exportação Lightroom " .. os.date("%d/%m/%Y %H:%M")
+\t\tend
 
-		progressScope:setCaption( "Criando nova galeria no servidor..." )
-		
-		local createUrl = serverUrl .. "/api/lightroom/create-collection"
-		local body = LrJson.toString({
-			title = newTitle,
-			ownerId = userToken
-		})
-		
-		local headers = {
-			{ field = "Content-Type", value = "application/json" }
-		}
-		
-		local response, resHeaders = LrHttp.post( createUrl, body, headers )
-		if response then
-			local ok, resTable = pcall( LrJson.toTable, response )
-			if ok and resTable and resTable.id then
-				collectionId = resTable.id
-			else
-				LrDialogs.showError( "Erro ao criar galeria: " .. tostring(response) )
-				return
-			end
-		else
-			LrDialogs.showError( "Falha ao criar nova galeria no servidor." )
-			return
-		end
-	end
+\t\tprogressScope:setCaption( "Criando nova galeria no servidor..." )
+\t\t
+\t\tlocal createUrl = serverUrl .. "/api/lightroom/create-collection"
+\t\tlocal body = LrJson.toString({
+\t\t\ttitle = newTitle,
+\t\t\townerId = userToken
+\t\t})
+\t\t
+\t\tlocal headers = {
+\t\t\t{ field = "Content-Type", value = "application/json" }
+\t\t}
+\t\t
+\t\tlocal response, resHeaders = LrHttp.post( createUrl, body, headers )
+\t\tif response then
+\t\t\tlocal ok, resTable = pcall( LrJson.toTable, response )
+\t\t\tif ok and resTable and resTable.id then
+\t\t\t\tcollectionId = resTable.id
+\t\t\telse
+\t\t\t\tLrDialogs.showError( "Erro ao criar galeria: " .. tostring(response) )
+\t\t\t\treturn
+\t\t\tend
+\t\telse
+\t\t\tLrDialogs.showError( "Falha ao criar nova galeria no servidor." )
+\t\t\treturn
+\t\tend
+\tend
 
-	for i, rendition in exportContext:renditions() do
-		if progressScope:isCanceled() then break end
+\tfor i, rendition in exportContext:renditions() do
+\t\tif progressScope:isCanceled() then break end
 
-		progressScope:setPortionComplete( i - 1, nPhotos )
-		
-		local success, pathOrError = rendition:renditionToImageFile()
-		
-		if success then
-			local fileName = LrPathUtils.leafName( pathOrError )
-			progressScope:setCaption( string.format( "Enviando imagem %d de %d: %s", i, nPhotos, fileName ) )
-			
-			local uploadUrl = serverUrl .. "/api/lightroom/upload"
-			
-			local mimeParts = {
-				{ name = "ownerId", value = userToken },
-				{ name = "collectionId", value = tostring(collectionId) },
-				{
-					name = "file",
-					filePath = pathOrError,
-					fileName = fileName,
-					contentType = "image/jpeg"
-				}
-			}
-			
-			local response, resHeaders = LrHttp.postMultipart( uploadUrl, mimeParts )
-			LrFileUtils.delete( pathOrError )
-			
-			if not response then
-				rendition:uploadFailed( "Erro de conexão ao enviar arquivo para o servidor." )
-			else
-				local ok, resTable = pcall( LrJson.toTable, response )
-				if ok and resTable and resTable.success then
-					rendition:uploadSucceeded()
-				else
-					rendition:uploadFailed( "Erro na resposta do servidor: " .. tostring(response) )
-				end
-			end
-		else
-			rendition:uploadFailed( "Erro ao renderizar foto no Lightroom: " .. tostring(pathOrError) )
-		end
-	end
+\t\tprogressScope:setPortionComplete( i - 1, nPhotos )
+\t\t
+\t\tlocal success, pathOrError = rendition:renditionToImageFile()
+\t\t
+\t\tif success then
+\t\t\tlocal fileName = LrPathUtils.leafName( pathOrError )
+\t\t\tprogressScope:setCaption( string.format( "Enviando imagem %d de %d: %s", i, nPhotos, fileName ) )
+\t\t\t
+\t\t\tlocal uploadUrl = serverUrl .. "/api/lightroom/upload"
+\t\t\t
+\t\t\tlocal mimeParts = {
+\t\t\t\t{ name = "ownerId", value = userToken },
+\t\t\t\t{ name = "collectionId", value = tostring(collectionId) },
+\t\t\t\t{
+\t\t\t\t\tname = "file",
+\t\t\t\t\tfilePath = pathOrError,
+\t\t\t\t\tfileName = fileName,
+\t\t\t\t\tcontentType = "image/jpeg"
+\t\t\t\t}
+\t\t\t}
+\t\t\t
+\t\t\tlocal response, resHeaders = LrHttp.postMultipart( uploadUrl, mimeParts )
+\t\t\tLrFileUtils.delete( pathOrError )
+\t\t\t
+\t\t\tif not response then
+\t\t\t\trendition:uploadFailed( "Erro de conexão ao enviar arquivo para o servidor." )
+\t\t\telse
+\t\t\t\tlocal ok, resTable = pcall( LrJson.toTable, response )
+\t\t\t\tif ok and resTable and resTable.success then
+\t\t\t\t\trendition:uploadSucceeded()
+\t\t\t\telse
+\t\t\t\t\trendition:uploadFailed( "Erro na resposta do servidor: " .. tostring(response) )
+\t\t\t\tend
+\t\t\tend
+\t\telse
+\t\t\trendition:uploadFailed( "Erro ao renderizar foto no Lightroom: " .. tostring(pathOrError) )
+\t\tend
+\tend
 
-	progressScope:done()
-	LrDialogs.showInfo( "Sua exportação Lightroom foi concluída com sucesso!" )
+\tprogressScope:done()
+\tLrDialogs.showInfo( "Sua exportação Lightroom foi concluída com sucesso!" )
 end
 
 return exportServiceProvider`;
 
+    const readmeTxt = `FRAME+ AI STUDIO & GALLERY - PLUGIN ADOBE LIGHTROOM CLASSIC
+=================================================================
+
+1. Extraia esta pasta (FramePlusAI.lrplugin) para um local fixo (ex: Documentos/Lightroom Plugins).
+2. Abra o Adobe Lightroom Classic.
+3. Vá em Arquivo > Gerenciador de Plug-ins... (File > Plug-in Manager...).
+4. Clique em Adicionar (Add) e selecione a pasta FramePlusAI.lrplugin.
+
+MODOS DE USO:
+A) Edição por IA sem Upload (XMP):
+   - Use o módulo "Estúdio IA" no Frame+ para gerar os arquivos .xmp na pasta das suas fotos.
+   - No Lightroom Classic, selecione as fotos e clique em Metadados > Ler Metadados dos Arquivos.
+   - OU clique em Arquivo > Extras de Plug-in > Editar com Frame Plus IA com o Local Bridge rodando em http://localhost:54321.
+
+B) Publicar Direto para Galeria Frame+:
+   - Clique em Exportar (Ctrl+Shift+E / Cmd+Shift+E) e selecione "Frame+ Art Gallery" no topo esquerdo.
+   - Insira a URL do servidor e seu Token (UID) disponível em Configurações > Lightroom no Frame+.
+`;
+
+    return { infoLua, editWithFramePlusLua, exportProviderLua, readmeTxt };
+  }
+
+  app.get('/api/lightroom/plugin-source', (req, res) => {
+    try {
+      const files = buildLightroomPluginFiles();
+      return res.json(files);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/lightroom/download', async (req, res) => {
+    try {
+      const zip = new JSZip();
+      const pluginDir = zip.folder("FramePlusAI.lrplugin");
+      const { infoLua, editWithFramePlusLua, exportProviderLua, readmeTxt } = buildLightroomPluginFiles();
+
       if (pluginDir) {
         pluginDir.file("Info.lua", infoLua);
+        pluginDir.file("EditWithFramePlusAI.lua", editWithFramePlusLua);
         pluginDir.file("ExportProvider.lua", exportProviderLua);
+        pluginDir.file("README_INSTALACAO.txt", readmeTxt);
       }
 
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
 
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', 'attachment; filename="frameplus_lightroom.zip"');
+      res.setHeader('Content-Disposition', 'attachment; filename="FramePlusAI.lrplugin.zip"');
       res.send(zipBuffer);
     } catch (err: any) {
       console.error('Error generating Lightroom plugin ZIP:', err);
@@ -3457,17 +3799,351 @@ return exportServiceProvider`;
     }
   });
 
+  function getGeminiClient() {
+    const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    if (!apiKey) return null;
+    return new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+
+  // Personal Style Profile Calibration (10-photo Photographer Talent Profile)
+  app.get('/api/ai/style-profiles', (req, res) => {
+    try {
+      const ownerId = typeof req.query.ownerId === 'string' ? req.query.ownerId.trim() : '';
+      const all = readStyleProfiles();
+      const filtered = ownerId ? all.filter((p) => p.ownerId === ownerId) : all;
+      return res.json(filtered);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/ai/style-profiles/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const all = readStyleProfiles().filter((p) => p.id !== id);
+      writeStyleProfiles(all);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/ai/train-style-profile', async (req, res) => {
+    try {
+      const { ownerId, profileName, samples } = req.body || {};
+      if (!ownerId) {
+        return res.status(400).json({ error: 'ownerId é obrigatório para salvar seu perfil de edição.' });
+      }
+      if (!Array.isArray(samples) || samples.length < 3) {
+        return res.status(400).json({ error: 'Edite pelo menos 3 fotos (recomendado 10 fotos) para treinar seu padrão pessoal.' });
+      }
+
+      const validSamples = samples.slice(0, 12);
+      const count = validSamples.length;
+      const numKeys = [
+        'temperature',
+        'tint',
+        'exposure',
+        'contrast',
+        'highlights',
+        'shadows',
+        'whites',
+        'blacks',
+        'clarity',
+        'vibrance',
+        'saturation',
+        'skinSmoothing',
+      ] as const;
+
+      const mean: Record<string, number> = {};
+      for (const k of numKeys) {
+        const sum = validSamples.reduce((acc: number, s: any) => acc + Number(s?.settings?.[k] ?? (k === 'temperature' ? 5500 : 0)), 0);
+        const avg = sum / count;
+        mean[k] = k === 'exposure' ? Number(avg.toFixed(2)) : Math.round(avg);
+      }
+
+      let styleDna = {
+        summary: `Padrão autoral calibrado a partir de ${count} fotos reais do fotógrafo.`,
+        wbTendency: `Temperatura média em ${mean.temperature}K e Matiz ${mean.tint >= 0 ? '+' : ''}${mean.tint}.`,
+        exposureStyle: `Exposição base ${mean.exposure >= 0 ? '+' : ''}${mean.exposure} EV, Realces ${mean.highlights}, Sombras ${mean.shadows >= 0 ? '+' : ''}${mean.shadows}.`,
+        contrastAndTone: `Contraste ${mean.contrast >= 0 ? '+' : ''}${mean.contrast}, Brancos ${mean.whites >= 0 ? '+' : ''}${mean.whites}, Pretos ${mean.blacks}.`,
+        skinRule: `Claridade ${mean.clarity >= 0 ? '+' : ''}${mean.clarity} com suavização de pele em ${mean.skinSmoothing}/100.`,
+        colorPalette: `Vibração ${mean.vibrance >= 0 ? '+' : ''}${mean.vibrance} e Saturação ${mean.saturation >= 0 ? '+' : ''}${mean.saturation}.`,
+      };
+
+      const ai = getGeminiClient();
+      if (ai) {
+        try {
+          const sampleSummaries = validSamples.map((s: any, idx: number) => ({
+            foto: idx + 1,
+            arquivo: s.fileName,
+            sliders: s.settings,
+          }));
+
+          const parts: any[] = [];
+          // Include up to 5 reference thumbnails so Gemini correlates visual lighting with photographer's sliders
+          for (const s of validSamples.slice(0, 5)) {
+            if (typeof s.previewBase64 === 'string' && s.previewBase64.includes('base64,')) {
+              parts.push({
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: s.previewBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, ''),
+                },
+              });
+            }
+          }
+          parts.push({
+            text: `Você é o motor de aprendizado de estilo da Frame Plus AI (arquitetura Imagen AI Personal Profile).
+O fotógrafo editou manualmente ${count} fotos de referência para ensinar o padrão visual dele antes de automatizar o restante do lote.
+
+Médias estatísticas calculadas dos sliders dele:
+${JSON.stringify(mean, null, 2)}
+
+Amostras individuais (arquivo + sliders escolhidos pelo fotógrafo):
+${JSON.stringify(sampleSummaries, null, 2)}
+
+Analise as imagens enviadas junto aos sliders exatos escolhidos por este fotógrafo e extraia o DNA de Estilo Pessoal dele em JSON para ser replicado fielmente em todas as novas fotos.`,
+          });
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-4-hydrogen',
+            contents: { parts },
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  summary: { type: Type.STRING },
+                  wbTendency: { type: Type.STRING },
+                  exposureStyle: { type: Type.STRING },
+                  contrastAndTone: { type: Type.STRING },
+                  skinRule: { type: Type.STRING },
+                  colorPalette: { type: Type.STRING },
+                },
+                required: ['summary', 'wbTendency', 'exposureStyle', 'contrastAndTone', 'skinRule', 'colorPalette'],
+              },
+            },
+          });
+
+          if (response.text) {
+            const parsedDna = JSON.parse(response.text);
+            if (parsedDna && parsedDna.summary) {
+              styleDna = parsedDna;
+            }
+          }
+        } catch (dnaErr: any) {
+          console.warn('[Gemini AI] Aviso ao sintetizar Style DNA (mantendo perfil estatístico):', dnaErr?.message);
+        }
+      }
+
+      const now = new Date().toISOString();
+      const all = readStyleProfiles();
+      const cleanName = (profileName || 'Meu Padrão Pessoal').trim();
+      const existingIdx = all.findIndex(
+        (p) => p.ownerId === ownerId && p.name.toLowerCase() === cleanName.toLowerCase()
+      );
+
+      const savedRecord = {
+        id: existingIdx !== -1 ? all[existingIdx].id : `style_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+        ownerId,
+        name: cleanName,
+        sampleCount: count,
+        meanSettings: mean,
+        sampleThumbnails: validSamples
+          .map((s: any) => s.previewBase64)
+          .filter((b: any) => typeof b === 'string' && b.length < 180000)
+          .slice(0, 6),
+        styleDna,
+        createdAt: existingIdx !== -1 ? all[existingIdx].createdAt : now,
+        updatedAt: now,
+      };
+
+      if (existingIdx !== -1) {
+        all[existingIdx] = savedRecord;
+      } else {
+        all.unshift(savedRecord);
+      }
+      writeStyleProfiles(all);
+
+      return res.json(savedRecord);
+    } catch (err: any) {
+      console.error('[AI Style Train] Erro:', err);
+      return res.status(500).json({ error: err.message || 'Falha ao treinar perfil de estilo.' });
+    }
+  });
+
+  // AI Photo Develop & Culling Engine (Imagen AI / Aftershoot / Narrative Select architecture)
+  app.post('/api/ai/analyze-photo', async (req, res) => {
+    try {
+      const { imageBase64, mimeType, presetProfile, fileName, customPrompt, learnedProfile } = req.body || {};
+
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({ error: 'Smart Preview (imageBase64) é obrigatório para análise visual.' });
+      }
+
+      const ai = getGeminiClient();
+      if (!ai) {
+        return res.status(503).json({
+          error: 'Chave GEMINI_API_KEY não configurada no servidor. Configure em Settings > Secrets ou ative o Modo Demonstração (Histograma Local).',
+          code: 'GEMINI_KEY_MISSING',
+        });
+      }
+
+      const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+      const profileName = presetProfile || 'Clean & Natural';
+
+      const profileGuides: Record<string, string> = {
+        'Clean & Natural': 'Cores fiéis à realidade, tons de pele limpos e neutros, contraste equilibrado, realces preservados e sombras abertas naturalmente.',
+        'Editorial Warm': 'Tons quentes dourados (temperatura ligeiramente elevada 5600K-6400K), contraste suave estilo filme editorial, realces cremosos e pele iluminada.',
+        'Moody & Contrast': 'Contraste dramático, sombras profundas porém detalhadas, verdes/amarelos discretamente dessaturados, atmosfera cinematográfica e rica.',
+        'High-Key Studio': 'Exposição luminosa e limpa, brancos puros sem estourar, pele uniforme e suave, nitidez e clareza equilibradas para estúdio ou retratos claros.',
+      };
+
+      let styleBlock = `Diretriz do estilo: ${profileGuides[profileName] || profileGuides['Clean & Natural']}`;
+      if (learnedProfile && learnedProfile.meanSettings) {
+        const dna = learnedProfile.styleDna || {};
+        styleBlock = `PADRÃO PESSOAL CALIBRADO DO FOTÓGRAFO ("${learnedProfile.name || 'Meu Padrão'}", treinado com ${learnedProfile.sampleCount || 10} fotos reais dele):
+- Assinatura média dos sliders do fotógrafo: ${JSON.stringify(learnedProfile.meanSettings)}
+- Resumo visual do estilo: ${dna.summary || ''}
+- Balanço de Branco preferido: ${dna.wbTendency || ''}
+- Estilo de Exposição/Luz: ${dna.exposureStyle || ''}
+- Curva de Contraste e Tons: ${dna.contrastAndTone || ''}
+- Tratamento de Pele e Claridade: ${dna.skinRule || ''}
+- Paleta e Saturação: ${dna.colorPalette || ''}
+
+REGRA CRÍTICA: Compense as variações específicas desta cena (se esta foto estiver mais escura/clara ou mais fria/quente que o ideal), mas entregue o resultado final rigorosamente dentro da assinatura estética e faixa de sliders do fotógrafo acima!`;
+      }
+
+      const promptText = `Você é um colorista e editor sênior de pós-produção fotográfica (padrão Imagen AI, Aftershoot e Adobe Lightroom Classic).
+Analise esta foto ("${fileName || 'foto.jpg'}") usando o perfil "${profileName}".
+${styleBlock}
+${customPrompt ? `Instrução adicional do fotógrafo: ${customPrompt}` : ''}
+
+Avalie:
+1. Exposição atual, clipping de realces, recuperação de sombras, ponto de branco e preto.
+2. Balanço de branco ideal (Temperature em Kelvin de 2500 a 9500, Tint de -35 a +35) para garantir tons de pele fiéis ao padrão solicitado.
+3. Claridade, Vibração, Saturação e Suavização sutil de pele (skinSmoothing 0-60).
+4. Culling inteligente (cullingScore de 1 a 5 estrelas considerando nitidez, foco nos olhos, composição e expressão; focusStatus; eyesOpen; sceneType).
+
+Retorne exclusivamente JSON válido seguindo o schema.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: mimeType || 'image/jpeg',
+                data: cleanBase64,
+              },
+            },
+            { text: promptText },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              temperature: { type: Type.INTEGER, description: 'Kelvin temperature between 2500 and 9500' },
+              tint: { type: Type.INTEGER, description: 'Tint between -50 and 50' },
+              exposure: { type: Type.NUMBER, description: 'Exposure EV adjustment between -2.5 and 2.5' },
+              contrast: { type: Type.INTEGER, description: 'Contrast between -100 and 100' },
+              highlights: { type: Type.INTEGER, description: 'Highlights between -100 and 100' },
+              shadows: { type: Type.INTEGER, description: 'Shadows between -100 and 100' },
+              whites: { type: Type.INTEGER, description: 'Whites between -100 and 100' },
+              blacks: { type: Type.INTEGER, description: 'Blacks between -100 and 100' },
+              clarity: { type: Type.INTEGER, description: 'Clarity between -100 and 100' },
+              vibrance: { type: Type.INTEGER, description: 'Vibrance between -100 and 100' },
+              saturation: { type: Type.INTEGER, description: 'Saturation between -100 and 100' },
+              skinSmoothing: { type: Type.INTEGER, description: 'Skin smoothing between 0 and 100' },
+              cullingScore: { type: Type.INTEGER, description: 'Culling rating from 1 to 5 stars' },
+              focusStatus: { type: Type.STRING, description: 'Focus quality: nítida, suave, or desfocada' },
+              eyesOpen: { type: Type.BOOLEAN, description: 'Whether main subject eyes appear open and alert' },
+              sceneType: { type: Type.STRING, description: 'Short scene label in Portuguese (e.g. Retrato Externo, Cerimônia)' },
+              aiReasoning: { type: Type.STRING, description: 'Concise technical explanation in Portuguese of the adjustments applied' },
+            },
+            required: [
+              'temperature',
+              'tint',
+              'exposure',
+              'contrast',
+              'highlights',
+              'shadows',
+              'whites',
+              'blacks',
+              'clarity',
+              'vibrance',
+              'saturation',
+              'skinSmoothing',
+              'cullingScore',
+              'focusStatus',
+              'eyesOpen',
+              'sceneType',
+              'aiReasoning',
+            ],
+          },
+        },
+      });
+
+      const rawText = (response.text || '').trim();
+      if (!rawText) {
+        return res.status(502).json({ error: 'O modelo Gemini retornou uma resposta vazia.' });
+      }
+
+      const parsed = JSON.parse(rawText);
+      const clamp = (val: any, min: number, max: number, fallback: number) => {
+        const n = Number(val);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(max, Math.max(min, n));
+      };
+
+      const normalized = {
+        temperature: Math.round(clamp(parsed.temperature, 2000, 12000, 5500)),
+        tint: Math.round(clamp(parsed.tint, -50, 50, 0)),
+        exposure: Number(clamp(parsed.exposure, -3, 3, 0).toFixed(2)),
+        contrast: Math.round(clamp(parsed.contrast, -100, 100, 0)),
+        highlights: Math.round(clamp(parsed.highlights, -100, 100, 0)),
+        shadows: Math.round(clamp(parsed.shadows, -100, 100, 0)),
+        whites: Math.round(clamp(parsed.whites, -100, 100, 0)),
+        blacks: Math.round(clamp(parsed.blacks, -100, 100, 0)),
+        clarity: Math.round(clamp(parsed.clarity, -100, 100, 0)),
+        vibrance: Math.round(clamp(parsed.vibrance, -100, 100, 0)),
+        saturation: Math.round(clamp(parsed.saturation, -100, 100, 0)),
+        skinSmoothing: Math.round(clamp(parsed.skinSmoothing, 0, 100, 10)),
+        cullingScore: Math.round(clamp(parsed.cullingScore, 1, 5, 4)),
+        focusStatus: String(parsed.focusStatus || 'nítida'),
+        eyesOpen: Boolean(parsed.eyesOpen !== false),
+        sceneType: String(parsed.sceneType || 'Fotografia'),
+        aiReasoning: String(parsed.aiReasoning || 'Ajuste equilibrado de exposição, contraste e colorimetria.'),
+      };
+
+      return res.json(normalized);
+    } catch (err: any) {
+      console.error('[Gemini AI] Erro na análise de foto:', err);
+      return res.status(err?.status || 500).json({
+        error: err?.message || 'Falha ao analisar a foto com a API Gemini Vision.',
+      });
+    }
+  });
+
   // AI Article Generator using Gemini API
   app.post('/api/ai/generate-blog-post', async (req, res) => {
     try {
       const { topic, city, style, photographerName } = req.body;
 
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+      const ai = getGeminiClient();
       let generatedArticle: any = null;
 
-      if (apiKey) {
+      if (ai) {
         try {
-          const ai = new GoogleGenAI({ apiKey });
           const prompt = `Você é um redator sênior especialista em SEO e GEO (Generative Engine Optimization) focado em fotografia e audiovisual no Brasil.
 Crie um artigo completo e cativante em Português para o blog de um fotógrafo/videomaker profissional.
 
@@ -3488,7 +4164,7 @@ Retorne estritamente um objeto JSON com as chaves:
 }`;
 
           const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+            model: 'gemini-4-hydrogen',
             contents: prompt,
             config: { responseMimeType: 'application/json' }
           });
@@ -3545,7 +4221,7 @@ Retorne estritamente um objeto JSON com as chaves:
         hasGoogleMaps,
         hasOgImage 
       } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+      const aiClient = getGeminiClient();
 
       const effectiveTitle = (metaTitle || title || '').trim();
       const effectiveDesc = (metaDescription || heroSubtitle || '').trim();
@@ -3555,9 +4231,8 @@ Retorne estritamente um objeto JSON com as chaves:
 
       let audit: any = null;
 
-      if (apiKey) {
+      if (aiClient) {
         try {
-          const ai = new GoogleGenAI({ apiKey });
           const prompt = `Atue como auditor técnico sênior de SEO e GEO (Generative Engine Optimization) no padrão GTmetrix e Google PageSpeed Insights para websites de fotógrafos e estúdios visuais.
 
 Analise os seguintes dados do site:
@@ -3601,8 +4276,8 @@ Retorne EXCLUSIVAMENTE um JSON estrito no formato:
   "localKeywordsFound": ["kw1", "kw2"]
 }`;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+          const response = await aiClient.models.generateContent({
+            model: 'gemini-4-hydrogen',
             contents: prompt,
             config: { responseMimeType: 'application/json' }
           });
